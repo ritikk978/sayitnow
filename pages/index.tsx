@@ -24,7 +24,7 @@ import Navbar from '@/component/navbar';
 const HomePage = () => {
   // State management
   const [isMuted, setIsMuted] = useState(false);
-  const [videoUrl, setVideoUrl] = useState('https://www.pexels.com/video/changes-in-form-and-appearance-of-a-submerged-material-3163534/');
+  const [videoUrl, setVideoUrl] = useState('./bg.mp4');
   const [isLoading, setIsLoading] = useState(true);
   const [showMenu, setShowMenu] = useState(false);
   const [scrolled, setScrolled] = useState(false);
@@ -89,7 +89,7 @@ const HomePage = () => {
     }
   };
 
-  const handleVolumeChange = (e) => {
+  const handleVolumeChange = (e: { target: { value: any; }; }) => {
     const value = e.target.value;
     setVolumeLevel(value);
     if (videoRef.current) {
@@ -311,7 +311,7 @@ const HomePage = () => {
 
         
         {/* Hero Content */}
-        <div className="mx-auto relative z-10 mt-12">
+        <div className="mx-auto  relative z-10 ml-10">
           <div className="max-w-3xl">
             <motion.span 
               className="inline-block py-1 px-3 rounded-full bg-indigo-900 bg-opacity-50 text-indigo-300 text-sm font-medium mb-6"
