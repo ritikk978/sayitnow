@@ -24,7 +24,7 @@ import Navbar from '@/component/navbar';
 const HomePage = () => {
   // State management
   const [isMuted, setIsMuted] = useState(false);
-  const [videoUrl, setVideoUrl] = useState('./bg.mp4');
+  const [videoUrl, setVideoUrl] = useState('https://www.pexels.com/video/changes-in-form-and-appearance-of-a-submerged-material-3163534/');
   const [isLoading, setIsLoading] = useState(true);
   const [showMenu, setShowMenu] = useState(false);
   const [scrolled, setScrolled] = useState(false);
