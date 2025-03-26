@@ -15,6 +15,7 @@ import {
   Github
 } from 'lucide-react';
 import NavBar from '@/component/navbar';
+import Navbar from '@/component/navbar';
 
 const AboutContent = () => {
   // Animation variants
@@ -115,8 +116,10 @@ const AboutContent = () => {
 
   return (
     <>
-    <NavBar/>
-    <motion.div 
+      <Navbar scrolled={false} showMenu={false} setShowMenu={function (value: React.SetStateAction<boolean>): void {
+        throw new Error('Function not implemented.');
+      } } />
+      <motion.div 
       className="w-full bg-white py-16 px-4"
       variants={containerVariants}
       initial="hidden"

@@ -1,8 +1,17 @@
-import React from 'react';
+import React, { Dispatch, SetStateAction } from 'react';
 import { useRouter } from 'next/router';
 import { Url } from 'next/dist/shared/lib/router/router';
 
-const NavBar = () => {
+
+interface NavbarProps {
+  scrolled: boolean;
+  showMenu: boolean;
+  setShowMenu: Dispatch<SetStateAction<boolean>>;
+  // Add any other props your Navbar might need
+}
+
+
+const NavBar : React.FC<NavbarProps>   = () => {
   const router = useRouter();
 
   const navItems = [

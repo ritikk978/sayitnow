@@ -6,7 +6,7 @@ import Navbar from '@/component/navbar';
 
 const PricingContent = () => {
   const [billingCycle, setBillingCycle] = useState('monthly');
-  const [hoveredPlan, setHoveredPlan] = useState(null);
+  const [hoveredPlan, setHoveredPlan] = useState<string | null>(null);
 
   // Animation variants
   const containerVariants = {
@@ -157,7 +157,7 @@ const PricingContent = () => {
   };
 
   // Get price display based on plan and billing cycle
-  const getPriceDisplay = (plan) => {
+  const getPriceDisplay = (plan: { id: string; name: string; monthlyPrice: number; yearlyPrice: number; description: string; icon: React.JSX.Element; features: { name: string; included: boolean; }[]; cta: string; popular: boolean; bgColor: string; borderColor: string; displayPrice?: undefined; } | { id: string; name: string; monthlyPrice: null; yearlyPrice: null; displayPrice: string; description: string; icon: React.JSX.Element; features: { name: string; included: boolean; }[]; cta: string; popular: boolean; bgColor: string; borderColor: string; }) => {
     if (plan.displayPrice) return plan.displayPrice;
     
     const price = billingCycle === 'monthly' ? plan.monthlyPrice : plan.yearlyPrice;
@@ -171,7 +171,9 @@ const PricingContent = () => {
 
   return (
     <>
-    <Navbar/>
+    <Navbar scrolled={false} showMenu={false} setShowMenu={function (value: React.SetStateAction<boolean>): void {
+        throw new Error('Function not implemented.');
+      } }/>
     <motion.div 
       className="w-full bg-gray-50 py-16 px-4"
       variants={containerVariants}
