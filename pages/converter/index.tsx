@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Navbar from '../../component/navbar';
+import NavBar from '../../component/navbar';
 // import { GiMicrophone } from "react-icons/gi"; // Unused
 
 // Define types for voice and language data
@@ -47,6 +48,9 @@ const Converter: React.FC = () => {
   const [isConversionSuccess, setIsConversionSuccess] = useState<boolean>(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const [showMenu, setShowMenu] = useState(false);
+  const [showDetailedError, setShowDetaildError] = useState(false);
+  
 
   // Fetch available voices on component mount
   useEffect(() => {
@@ -66,7 +70,7 @@ const Converter: React.FC = () => {
              // WARNING: Exposing Project ID in frontend is not ideal
              'X-Goog-User-Project': 'silken-obelisk-454907-v9', // <-- Replace or remove if using backend
              // WARNING: EXTREMELY INSECURE - Never put Bearer tokens in frontend code
-             'Authorization': `Bearer YOUR_API_KEY_OR_TOKEN`, // <-- Replace with placeholder/remove
+             'Authorization': `Bearer ya29.a0AeXRPp6ebCI7tEmDUyHwTZ1wDuoY5ayzi0HjFInLBufT6Gd_bqDbMYrB-_VGLK5HU33JvE_WRsuggcUJYHaIEddVFt2nQf7NeMG61LqtA86yN_r8P7Vy24ANtQo060nKUw1Xv4W65ztWh_eUOEy_lYHnVOSCVeKahtbHPRATi8G4wwDeyuvwZIxJxmI_WbJbKVKikvgo_ufMtFbVZq0fCgLhni9ssSuaOiK1JdmQdgTb_3U88x5xqw_aM0-vLyEeE8VHk2rWBlqkLKyeHml931XXoFtwT4l0QCZHS0QfK_IqT0ntfhB9FQk68D-yepY17trzEUxp2PdbdbHIuNHyeJmHQJ9JVocxq-svmupBvJcni9JP9Z2UnQTZRsbneQiQX3wCRCHtYtR_YIpkR7R6xcvJBLd1XXi2mOIaaCgYKAbQSAQ4SFQHGX2MiTn-SXFBCpHJgu2qANwvGvg0427`, // <-- Replace with placeholder/remove
              'Content-Type': 'application/json'
           }
         });
@@ -205,7 +209,7 @@ const Converter: React.FC = () => {
           // WARNING: Exposing Project ID in frontend is not ideal
           'X-Goog-User-Project': 'silken-obelisk-454907-v9', // <-- Replace or remove if using backend
           // WARNING: EXTREMELY INSECURE - Never put Bearer tokens in frontend code
-          'Authorization': `Bearer YOUR_API_KEY_OR_TOKEN`, // <-- Replace with placeholder/remove
+          'Authorization': `Bearer ya29.a0AeXRPp6ebCI7tEmDUyHwTZ1wDuoY5ayzi0HjFInLBufT6Gd_bqDbMYrB-_VGLK5HU33JvE_WRsuggcUJYHaIEddVFt2nQf7NeMG61LqtA86yN_r8P7Vy24ANtQo060nKUw1Xv4W65ztWh_eUOEy_lYHnVOSCVeKahtbHPRATi8G4wwDeyuvwZIxJxmI_WbJbKVKikvgo_ufMtFbVZq0fCgLhni9ssSuaOiK1JdmQdgTb_3U88x5xqw_aM0-vLyEeE8VHk2rWBlqkLKyeHml931XXoFtwT4l0QCZHS0QfK_IqT0ntfhB9FQk68D-yepY17trzEUxp2PdbdbHIuNHyeJmHQJ9JVocxq-svmupBvJcni9JP9Z2UnQTZRsbneQiQX3wCRCHtYtR_YIpkR7R6xcvJBLd1XXi2mOIaaCgYKAbQSAQ4SFQHGX2MiTn-SXFBCpHJgu2qANwvGvg0427`, // <-- Replace with placeholder/remove
           'Content-Type': 'application/json'
         },
         body: JSON.stringify(requestBody)
@@ -316,12 +320,17 @@ const Converter: React.FC = () => {
     voice.languageCodes.includes(selectedLanguage)
   );
 
+  const handleShowDetailedError = () => {
+    setShowDetaildError(!showDetailedError);
+
+  };
+
   return (
     <>
-      <Navbar scrolled={false} showMenu={false} setShowMenu={function (value: React.SetStateAction<boolean>): void {
-        throw new Error('Function not implemented.');
-      } } />
-      <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-purple-50 to-blue-50 py-12 px-4">
+      
+      <NavBar scrolled={false} showMenu={showMenu} setShowMenu={setShowMenu} />
+
+      <div className="min-h-screen bg-gradient-to-br mt-16 from-indigo-50 via-purple-50 to-blue-50 py-12 px-4">
         <motion.div
           className="max-w-2xl mx-auto" // Increased max-width slightly
           initial={{ opacity: 0, y: 20 }}
@@ -343,7 +352,7 @@ const Converter: React.FC = () => {
                   whileHover={{ scale: 1.1, rotate: 5 }}
                   whileTap={{ scale: 0.95 }}
                 >
-                  <AudioWaveform className="text-white w-8 h-8" /> {/* White icon */}
+                  <AudioWaveform className="text-indigo-800 w-8 h-8" /> {/* White icon */}
                 </motion.div>
                 <motion.h1
                   className="text-3xl font-bold text-white"
@@ -393,7 +402,28 @@ const Converter: React.FC = () => {
                     transition={{ duration: 0.3 }}
                   >
                     <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
-                    <p className="flex-grow">{error}</p>
+                    <div className="flex flex-col">
+      {showDetailedError ? (
+        <>
+          <p className="flex-grow">Something wrong with the Authorization</p>
+          <p 
+            onClick={handleShowDetailedError} 
+            className="text-blue-500 cursor-pointer">
+            Hide Details
+          </p>
+        </>
+      ) : (
+        <>
+          <p className="flex-grow">{error}</p>
+          <p 
+            onClick={handleShowDetailedError} 
+            className="text-blue-500 cursor-pointer">
+            Show Details
+          </p>
+        </>
+      )}
+    </div>
+                    
                     <motion.button
                       className="ml-auto text-red-600 hover:text-red-800 flex-shrink-0"
                       whileHover={{ scale: 1.1 }}

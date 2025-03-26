@@ -1,5 +1,5 @@
 // component/aboutContent.jsx
-import React from 'react';
+import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { 
   Heart, 
@@ -18,6 +18,9 @@ import NavBar from '@/component/navbar';
 import Navbar from '@/component/navbar';
 
 const AboutContent = () => {
+
+    const [showMenu, setShowMenu] = useState(false);
+  
   // Animation variants
   const containerVariants = {
     hidden: { opacity: 0 },
@@ -116,11 +119,10 @@ const AboutContent = () => {
 
   return (
     <>
-      <Navbar scrolled={false} showMenu={false} setShowMenu={function (value: React.SetStateAction<boolean>): void {
-        throw new Error('Function not implemented.');
-      } } />
+                <NavBar scrolled={false} showMenu={showMenu} setShowMenu={setShowMenu} />
+
       <motion.div 
-      className="w-full bg-white py-16 px-4"
+      className="w-full bg-white mt-16 py-16 px-4"
       variants={containerVariants}
       initial="hidden"
       animate="visible"

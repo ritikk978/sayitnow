@@ -1,5 +1,5 @@
 // component/features.jsx
-import React from 'react';
+import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { 
   Layers, 
@@ -12,8 +12,12 @@ import {
   Globe 
 } from 'lucide-react';
 import Navbar from '@/component/navbar';
+import NavBar from '@/component/navbar';
 
 const FeaturesContent = () => {
+
+  const [showMenu, setShowMenu] = useState(false);
+
   // Animation variants
   const containerVariants = {
     hidden: { opacity: 0 },
@@ -115,11 +119,10 @@ const FeaturesContent = () => {
 
   return (
     <>
-    <Navbar scrolled={false} showMenu={false} setShowMenu={function (value: React.SetStateAction<boolean>): void {
-        throw new Error('Function not implemented.');
-      } }/>
+      <NavBar scrolled={false} showMenu={showMenu} setShowMenu={setShowMenu} />
+
     <motion.div 
-      className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 py-12 px-4 sm:px-6 lg:px-8"
+      className="min-h-screen mt-16 bg-gradient-to-b from-gray-50 to-gray-100 py-12 px-4 sm:px-6 lg:px-8"
       variants={containerVariants}
       initial="hidden"
       animate="visible"

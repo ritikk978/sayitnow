@@ -3,10 +3,12 @@ import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Check, X, Star, CreditCard, Users, Zap, Shield, Headphones, ArrowRight } from 'lucide-react';
 import Navbar from '@/component/navbar';
+import NavBar from '@/component/navbar';
 
 const PricingContent = () => {
   const [billingCycle, setBillingCycle] = useState('monthly');
   const [hoveredPlan, setHoveredPlan] = useState<string | null>(null);
+  const [showMenu, setShowMenu] = useState(false);
 
   // Animation variants
   const containerVariants = {
@@ -171,11 +173,10 @@ const PricingContent = () => {
 
   return (
     <>
-    <Navbar scrolled={false} showMenu={false} setShowMenu={function (value: React.SetStateAction<boolean>): void {
-        throw new Error('Function not implemented.');
-      } }/>
+          <NavBar scrolled={false} showMenu={showMenu} setShowMenu={setShowMenu} />
+
     <motion.div 
-      className="w-full bg-gray-50 py-16 px-4"
+      className="w-full bg-gray-50 mt-16 py-16 px-4"
       variants={containerVariants}
       initial="hidden"
       animate="visible"
