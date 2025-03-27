@@ -270,7 +270,7 @@ const Converter: React.FC = () => {
     <>
       <NavBar scrolled={false} showMenu={showMenu} setShowMenu={setShowMenu} />
 
-      <div className="min-h-screen bg-gradient-to-br mt-16 from-indigo-50 via-purple-50 to-blue-50 py-12 px-4">
+      <div className="min-h-screen bg-gradient-to-br mt-16 from-indigo-300 via-purple-50 to-blue-50 py-12 px-4">
         <motion.div
           className="max-w-2xl mx-auto"
           initial={{ opacity: 0, y: 20 }}
