@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, ChangeEvent } from 'react';
+import React, { useState, useRef, useEffect, ChangeEvent, useCallback } from 'react';
 import axios from 'axios'; // Import axios
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -16,26 +16,70 @@ import {
   Download,
   Volume2,
   VolumeX,
-  Cpu // Keep Cpu if you want the placeholder button
+  Cpu, // Keep Cpu if you want the placeholder button
+  Mic, // Icon for starting recording
+  MicOff, // Icon for stopping recording or indicating recording state
+  AlertCircle, // Icon for STT not supported
 } from 'lucide-react';
 import Link from 'next/link';
 
-// Define interfaces for language and voice data structures (using the one from Converter)
+// --- Interfaces (keep as they are) ---
+
+declare global {
+  interface Window {
+    SpeechRecognition: any;
+    webkitSpeechRecognition: any;
+  }
+}
+
+interface SpeechRecognitionErrorEvent extends Event {
+  error: string;
+  message: string;
+}
+
+interface SpeechRecognitionEvent extends Event {
+  readonly resultIndex: number;
+  readonly results: SpeechRecognitionResultList;
+}
+
+
+interface SpeechRecognitionResultList {
+  [index: number]: SpeechRecognitionResult;
+  readonly length: number;
+}
+
+interface SpeechRecognitionResult {
+  readonly isFinal: boolean;
+  [index: number]: SpeechRecognitionAlternative;
+  readonly length: number;
+}
+
+interface SpeechRecognitionAlternative {
+  readonly transcript: string;
+  readonly confidence: number;
+}
+
+
+ 
+ 
+
+
+
+
+
 interface Voice {
   name: string;
   languageCodes: string[];
-  ssmlGender?: string; // Optional as seen in Converter's usage
+  ssmlGender?: string;
   naturalSampleRateHertz?: number;
 }
 
-// Define Language with label for better display (from VoiceSynthesizer)
 interface LanguageDisplay {
   code: string;
-  label: string; // We might need to generate this or fetch it if API doesn't provide
+  label: string;
 }
 
-
-// --- Helper function to convert base64 to Blob (from Converter) ---
+// --- Helper function (keep as it is) ---
 const base64ToBlob = (base64: string, mimeType: string): Blob => {
   try {
     const byteCharacters = atob(base64);
@@ -47,64 +91,76 @@ const base64ToBlob = (base64: string, mimeType: string): Blob => {
     return new Blob([byteArray], { type: mimeType });
   } catch (e) {
     console.error("Error decoding base64 string:", e);
-    // Return an empty blob or throw error, depending on desired handling
     return new Blob([], { type: mimeType });
   }
 };
 
+
+
+// --- Check for SpeechRecognition API ---
+// Do this outside the component to check availability synchronously
+const SpeechRecognition =
+  typeof window !== 'undefined'
+    ? window.SpeechRecognition || (window as any).webkitSpeechRecognition
+    : null;
+
 const VoiceSynthesizer: React.FC = () => {
-  // == State Management (Merged) ==
+  // == State Management (Merged + STT State) ==
   const [text, setText] = useState<string>('');
   const [selectedLanguage, setSelectedLanguage] = useState<string>('');
   const [voiceName, setVoiceName] = useState<string>('');
   const [pitch, setPitch] = useState<number>(0);
   const [speakingRate, setSpeakingRate] = useState<number>(1);
   const [showAdvanced, setShowAdvanced] = useState<boolean>(false);
-  const [isLoading, setIsLoading] = useState<boolean>(false); // Handles both voice loading and conversion loading
+  const [isLoading, setIsLoading] = useState<boolean>(false); // TTS loading
   const [audioUrl, setAudioUrl] = useState<string>('');
-  const [error, setError] = useState<string>('');
+  const [error, setError] = useState<string>(''); // TTS error
   const [showDetailedError, setShowDetailedError] = useState<boolean>(false);
   const [isConversionSuccess, setIsConversionSuccess] = useState<boolean>(false);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [currentTime, setCurrentTime] = useState<number>(0);
   const [duration, setDuration] = useState<number>(0);
-  const [volume, setVolume] = useState<number>(1); // Kept from VoiceSynthesizer design
-  const [isMuted, setIsMuted] = useState<boolean>(false); // Kept from VoiceSynthesizer design
-  const [isDarkMode, setIsDarkMode] = useState<boolean>(false); // Kept from VoiceSynthesizer design
-
-  // State for API data (from Converter)
+  const [volume, setVolume] = useState<number>(1);
+  const [isMuted, setIsMuted] = useState<boolean>(false);
+  const [isDarkMode, setIsDarkMode] = useState<boolean>(false);
   const [voices, setVoices] = useState<Voice[]>([]);
-  const [languages, setLanguages] = useState<string[]>([]); // List of language codes
+  const [languages, setLanguages] = useState<string[]>([]);
 
-  // Refs (from VoiceSynthesizer)
+  // -- STT State --
+  const [isRecording, setIsRecording] = useState<boolean>(false);
+  const [sttError, setSttError] = useState<string>('');
+  const [browserSupportsSpeechRecognition, setBrowserSupportsSpeechRecognition] = useState<boolean>(false);
+
+  // Refs (TTS + STT)
   const audioRef = useRef<HTMLAudioElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const recognitionRef = useRef<typeof SpeechRecognition | null>(null);
 
-
-  // == API Calls & Data Handling (from Converter, adapted) ==
-
-  // Fetch available voices on component mount
-  useEffect(() => {
-    let isMounted = true; // Prevent state update on unmounted component
+  // == API Calls & Data Handling (TTS - keep as is) ==
+   useEffect(() => {
+    let isMounted = true;
     const fetchVoices = async () => {
       setIsLoading(true);
-      setError(''); // Clear previous errors
+      setError('');
       try {
-        const response = await axios.get('/api/tts'); // Assuming GET fetches voices
+        // Assume /api/tts GET returns voices list like { voices: [...] }
+        const response = await axios.get('/api/tts');
         console.log('API Voices Response:', response);
 
-        if (!isMounted) return; // Exit if component unmounted
+        if (!isMounted) return;
 
         const data = response.data;
-        const voiceList: Voice[] = data.voices || [];
+        // Robust check for the voices array
+        const voiceList: Voice[] = data && Array.isArray(data.voices) ? data.voices : [];
 
-        if (!Array.isArray(voiceList)) {
-            throw new Error("Invalid voice list format received from API.");
+        if (voiceList.length === 0 && (!data || !data.voices)) {
+             console.warn("API did not return a 'voices' array or it was empty.");
+             // Optionally throw an error if voices are absolutely required
+             // throw new Error("No voices received from API.");
         }
 
-        // Extract supported languages
         const languageCodes = voiceList
-          .flatMap(voice => voice.languageCodes || []) // Use flatMap and handle missing languageCodes
+          .flatMap(voice => voice.languageCodes || [])
           .filter((code): code is string => typeof code === 'string' && code.length > 0);
 
         const languageSet = new Set(languageCodes);
@@ -113,9 +169,7 @@ const VoiceSynthesizer: React.FC = () => {
         setLanguages(sortedLanguages);
         setVoices(voiceList);
 
-        // Set default language and voice more robustly
         if (sortedLanguages.length > 0) {
-          // Try finding a common default like 'en-US' or the first language
           let defaultLanguage = sortedLanguages.includes('en-US') ? 'en-US' : sortedLanguages[0];
           setSelectedLanguage(defaultLanguage);
 
@@ -123,7 +177,6 @@ const VoiceSynthesizer: React.FC = () => {
             (voice) => voice.languageCodes?.includes(defaultLanguage)
           );
 
-          // Prefer a 'Standard' or 'Neural' voice if available, otherwise the first one
           let defaultVoice = defaultVoicesForLang.find(v => v.name.includes('Standard'))
                             || defaultVoicesForLang.find(v => v.name.includes('Neural'))
                             || defaultVoicesForLang[0];
@@ -131,12 +184,18 @@ const VoiceSynthesizer: React.FC = () => {
           if (defaultVoice) {
             setVoiceName(defaultVoice.name);
           } else if (voiceList.length > 0) {
-             // Fallback if no voice found for default language (shouldn't happen if logic above is sound)
              setVoiceName(voiceList[0].name);
              if(voiceList[0].languageCodes?.length > 0) {
                 setSelectedLanguage(voiceList[0].languageCodes[0]);
+             } else {
+                 // If the first voice also has no language, maybe clear selection?
+                 setSelectedLanguage(''); // Or handle as appropriate
              }
           }
+        } else if (voiceList.length > 0) {
+            // Fallback if no languages extracted but voices exist (unlikely with correct data)
+            setVoiceName(voiceList[0].name);
+            setSelectedLanguage(voiceList[0].languageCodes?.[0] || '');
         }
       } catch (err: any) {
         console.error("Voice fetch error:", err);
@@ -153,21 +212,18 @@ const VoiceSynthesizer: React.FC = () => {
     fetchVoices();
 
     return () => {
-        isMounted = false; // Cleanup function to set flag
+        isMounted = false;
     }
-  }, []); // Empty dependency array ensures this runs only once on mount
+  }, []);
 
-  // Handle text conversion (using logic from Converter)
   const handleConvert = async () => {
-    // Reset previous states
-    setAudioUrl(''); // This will trigger the cleanup useEffect for the old URL
+    setAudioUrl('');
     setError('');
     setIsConversionSuccess(false);
     setIsPlaying(false);
     setCurrentTime(0);
     setDuration(0);
 
-    // Validate input
     if (!text.trim()) {
       setError('Please enter some text to convert.');
       return;
@@ -181,7 +237,7 @@ const VoiceSynthesizer: React.FC = () => {
 
     try {
       console.log('Sending to API:', { text, languageCode: selectedLanguage, voiceName, pitch, speakingRate });
-      const response = await axios.post('/api/tts', { // Assuming POST synthesizes
+      const response = await axios.post('/api/tts', {
         text,
         languageCode: selectedLanguage,
         voiceName,
@@ -196,7 +252,6 @@ const VoiceSynthesizer: React.FC = () => {
         throw new Error("API response did not contain audio content.");
       }
 
-      // Create a blob from the base64 audio content
       const audioBlob = base64ToBlob(data.audioContent, 'audio/mp3');
       if (audioBlob.size === 0) {
         throw new Error("Failed to decode base64 audio content.");
@@ -206,13 +261,11 @@ const VoiceSynthesizer: React.FC = () => {
       setAudioUrl(audioObjectUrl);
       setIsConversionSuccess(true);
 
-      // Preload metadata for the new audio
       if (audioRef.current) {
-        audioRef.current.src = audioObjectUrl; // Set src directly
+        audioRef.current.src = audioObjectUrl;
         audioRef.current.load();
       }
 
-      // Auto-hide success message
       setTimeout(() => {
         setIsConversionSuccess(false);
       }, 3000);
@@ -221,71 +274,59 @@ const VoiceSynthesizer: React.FC = () => {
       console.error("Conversion failed:", err);
        const errorMsg = err.response?.data?.error || err.message || 'Please check API logs and configuration.';
       setError(`Conversion failed: ${errorMsg}`);
-      // Consider setting showDetailedError based on error type?
     } finally {
       setIsLoading(false);
     }
   };
 
-  // == Lifecycle & Helpers (Merged) ==
+  // == Lifecycle & Helpers (Merged + STT Init) ==
 
-  // Clean up blob URL (from Converter)
+  // Check for SpeechRecognition support on mount
   useEffect(() => {
-    let currentAudioUrl = audioUrl; // Capture the URL in the effect closure
+    setBrowserSupportsSpeechRecognition(!!SpeechRecognition);
+  }, []);
+
+  // Cleanup blob URL (keep as is)
+  useEffect(() => {
+    let currentAudioUrl = audioUrl;
     return () => {
       if (currentAudioUrl && currentAudioUrl.startsWith('blob:')) {
          console.log('Revoking Blob URL:', currentAudioUrl);
          URL.revokeObjectURL(currentAudioUrl);
       }
     };
-  }, [audioUrl]); // Dependency: run cleanup when audioUrl *changes*
+  }, [audioUrl]);
 
-  // Update audio player time (like in VoiceSynthesizer)
+  // Update audio player time (keep as is)
   useEffect(() => {
     const audioElement = audioRef.current;
     if (!audioElement) return;
 
-    const handleTimeUpdate = () => {
-      if (!isNaN(audioElement.currentTime)) { // Check for NaN
-        setCurrentTime(audioElement.currentTime);
-      }
-    };
-
-    const handleLoadedMetadata = () => {
-      if (!isNaN(audioElement.duration) && isFinite(audioElement.duration)) { // Check for NaN/Infinity
-        setDuration(audioElement.duration);
-      } else {
-        setDuration(0); // Reset if duration is invalid
-      }
-    };
-
-    const handleEnded = () => {
-      setIsPlaying(false);
-      setCurrentTime(0); // Reset time on end
-    };
+    const handleTimeUpdate = () => { if (!isNaN(audioElement.currentTime)) setCurrentTime(audioElement.currentTime); };
+    const handleLoadedMetadata = () => { if (!isNaN(audioElement.duration) && isFinite(audioElement.duration)) setDuration(audioElement.duration); else setDuration(0);};
+    const handleEnded = () => { setIsPlaying(false); setCurrentTime(0); };
 
     audioElement.addEventListener('timeupdate', handleTimeUpdate);
     audioElement.addEventListener('loadedmetadata', handleLoadedMetadata);
     audioElement.addEventListener('ended', handleEnded);
 
-    // Initial metadata load check in case 'loadedmetadata' fired before effect
-    handleLoadedMetadata();
+    handleLoadedMetadata(); // Initial check
 
     return () => {
       audioElement.removeEventListener('timeupdate', handleTimeUpdate);
       audioElement.removeEventListener('loadedmetadata', handleLoadedMetadata);
       audioElement.removeEventListener('ended', handleEnded);
     };
-  }, [audioUrl]); // Rerun when audioUrl changes
+  }, [audioUrl]);
 
-  // Apply volume settings (from VoiceSynthesizer)
+  // Apply volume settings (keep as is)
   useEffect(() => {
     if (audioRef.current) {
       audioRef.current.volume = isMuted ? 0 : volume;
     }
   }, [volume, isMuted]);
 
-  // Handle theme change (from VoiceSynthesizer)
+  // Handle theme change (keep as is)
   useEffect(() => {
     if (typeof document !== 'undefined') {
       document.body.classList.toggle('dark', isDarkMode);
@@ -293,18 +334,27 @@ const VoiceSynthesizer: React.FC = () => {
     }
   }, [isDarkMode]);
 
-  // Auto-resize textarea (from VoiceSynthesizer)
+  // Auto-resize textarea (keep as is)
   useEffect(() => {
     if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto'; // Reset height
-      textareaRef.current.style.height = `${Math.max(textareaRef.current.scrollHeight, 6 * 16)}px`; // Use scrollHeight, ensure min height approx 6 rows
+      textareaRef.current.style.height = 'auto';
+      textareaRef.current.style.height = `${Math.max(textareaRef.current.scrollHeight, 6 * 16)}px`;
     }
   }, [text]);
 
+  // Cleanup Speech Recognition on unmount
+  useEffect(() => {
+    return () => {
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+        console.log('Speech recognition stopped on unmount.');
+      }
+    };
+  }, []);
 
-  // == Event Handlers (Merged & Adapted) ==
+  // == Event Handlers (Merged + STT Handlers) ==
 
-  // Format time (like in Converter, but ensure safety)
+  // Format time (keep as is)
   const formatTime = (seconds: number): string => {
     if (isNaN(seconds) || seconds < 0 || !isFinite(seconds)) return '0:00';
     const mins = Math.floor(seconds / 60);
@@ -312,37 +362,33 @@ const VoiceSynthesizer: React.FC = () => {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  // Play/Pause (like in Converter, adapted for VoiceSynthesizer structure)
+  // Play/Pause (keep as is)
   const handlePlayPause = () => {
-    if (audioRef.current && audioUrl) { // Check for audioUrl too
+    if (audioRef.current && audioUrl) {
       if (isPlaying) {
         audioRef.current.pause();
       } else {
-        // Ensure audio starts from beginning if it ended
         if (audioRef.current.ended || Math.abs(audioRef.current.currentTime - duration) < 0.1) {
             audioRef.current.currentTime = 0;
         }
         audioRef.current.play().catch(err => {
             console.error("Error playing audio:", err);
             setError("Could not play audio. Browser interaction might be needed.");
-            setIsPlaying(false); // Reset state if play fails
+            setIsPlaying(false);
         });
       }
       setIsPlaying(!isPlaying);
     }
   };
 
-  // Mute Toggle (from VoiceSynthesizer)
-  const handleMuteToggle = () => {
-    setIsMuted(!isMuted);
-  };
+  // Mute Toggle (keep as is)
+  const handleMuteToggle = () => setIsMuted(!isMuted);
 
-  // Download (like in Converter, adapted)
+  // Download (keep as is)
   const handleDownload = () => {
     if (!audioUrl) return;
     const link = document.createElement('a');
     link.href = audioUrl;
-    // Generate filename (similar to VoiceSynthesizer's attempt)
     const langLabel = selectedLanguage || 'lang';
     const voiceLabel = voiceName.split('-').slice(-2).join('_') || 'voice';
     link.download = `${langLabel}_${voiceLabel}_${Date.now()}.mp3`;
@@ -351,98 +397,160 @@ const VoiceSynthesizer: React.FC = () => {
     document.body.removeChild(link);
   };
 
-  // Detailed Error Toggle (like in VoiceSynthesizer)
-  const handleShowDetailedError = () => {
-    setShowDetailedError(!showDetailedError);
-  };
+  // Detailed Error Toggle (keep as is)
+  const handleShowDetailedError = () => setShowDetailedError(!showDetailedError);
 
-  // Input Changes (Standard React handlers)
-  const handleTextChange = (e: ChangeEvent<HTMLTextAreaElement>) => {
-    setText(e.target.value);
-  };
-
+  // Input Changes (keep as is)
+  const handleTextChange = (e: ChangeEvent<HTMLTextAreaElement>) => setText(e.target.value);
   const handleLanguageChange = (e: ChangeEvent<HTMLSelectElement>) => {
     const newLang = e.target.value;
     setSelectedLanguage(newLang);
-    // Reset voice selection when language changes
-    const firstVoice = voices.find(
-      (voice) => voice.languageCodes?.includes(newLang) // Safe access
-    );
+    const firstVoice = voices.find((voice) => voice.languageCodes?.includes(newLang));
     setVoiceName(firstVoice ? firstVoice.name : '');
   };
+  const handleVoiceChange = (e: ChangeEvent<HTMLSelectElement>) => setVoiceName(e.target.value);
+  const handlePitchChange = (e: ChangeEvent<HTMLInputElement>) => setPitch(Number(e.target.value));
+  const handleRateChange = (e: ChangeEvent<HTMLInputElement>) => setSpeakingRate(Number(e.target.value));
+  const handleVolumeChange = (e: ChangeEvent<HTMLInputElement>) => setVolume(Number(e.target.value));
 
-  const handleVoiceChange = (e: ChangeEvent<HTMLSelectElement>) => {
-    setVoiceName(e.target.value);
-  };
+  // --- STT Handlers ---
+  const handleToggleRecording = useCallback(() => {
+    if (!browserSupportsSpeechRecognition) {
+        setSttError("Speech recognition is not supported by your browser.");
+        return;
+    }
 
-  const handlePitchChange = (e: ChangeEvent<HTMLInputElement>) => {
-    setPitch(Number(e.target.value));
-  };
+    if (isRecording) {
+        // Stop recording
+        if (recognitionRef.current) {
+            recognitionRef.current.stop();
+            // isRecording state will be set to false in the 'onend' handler
+        }
+    } else {
+        // Start recording
+        if (!SpeechRecognition) return; // Guard against TS error
 
-  const handleRateChange = (e: ChangeEvent<HTMLInputElement>) => {
-    setSpeakingRate(Number(e.target.value));
-  };
+        setSttError(''); // Clear previous STT errors
+        recognitionRef.current = new SpeechRecognition();
+        const recognition = recognitionRef.current;
 
-   const handleVolumeChange = (e: ChangeEvent<HTMLInputElement>) => {
-    setVolume(Number(e.target.value));
-  };
+        // --- Configuration ---
+        recognition.continuous = true; // Keep listening
+        recognition.interimResults = true; // Get results as they come
+         // Attempt to use the selected TTS language, fallback to browser default or 'en-US'
+        recognition.lang = selectedLanguage || navigator.language || 'en-US';
+        console.log(`Starting STT with language: ${recognition.lang}`);
 
-  // Filter voices based on selected language (like in Converter)
+
+        // --- Event Handlers ---
+        recognition.onstart = () => {
+            console.log('Speech recognition started');
+            setIsRecording(true);
+        };
+
+        recognition.onresult = (event: SpeechRecognitionEvent) => {
+            let interimTranscript = '';
+            let finalTranscript = '';
+
+            for (let i = event.resultIndex; i < event.results.length; ++i) {
+                const transcript = event.results[i][0].transcript;
+                if (event.results[i].isFinal) {
+                    finalTranscript += transcript;
+                } else {
+                    interimTranscript += transcript;
+                }
+            }
+
+            // Update text state ONLY with the final transcript part
+            if (finalTranscript) {
+                console.log('Final transcript:', finalTranscript);
+                // Append to existing text, adding a space if needed
+                setText(prevText => prevText.trim() ? prevText + ' ' + finalTranscript.trim() : finalTranscript.trim());
+            }
+            // You could optionally display the interimTranscript elsewhere for feedback
+             // console.log('Interim transcript:', interimTranscript);
+        };
+
+        recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+            console.error('Speech recognition error:', event.error, event.message);
+            let message = `Speech recognition error: ${event.error}.`;
+            if (event.error === 'not-allowed') {
+                message = "Microphone access denied. Please allow microphone permissions in your browser settings.";
+            } else if (event.error === 'no-speech') {
+                message = "No speech detected. Please try speaking clearly.";
+            } else if (event.error === 'network') {
+                message = "Network error during speech recognition. Check your connection.";
+            } else if (event.error === 'audio-capture') {
+                 message = "Could not capture audio. Ensure your microphone is working and selected.";
+            }
+            setSttError(message);
+            setIsRecording(false); // Ensure recording state is reset on error
+             recognitionRef.current = null; // Clean up ref on error
+        };
+
+        recognition.onend = () => {
+            console.log('Speech recognition ended');
+            setIsRecording(false);
+            recognitionRef.current = null; // Clean up ref on normal end
+        };
+
+        // Start the recognition
+        try {
+             recognition.start();
+        } catch (e) {
+             console.error("Error starting speech recognition:", e);
+             setSttError("Could not start speech recognition. Ensure microphone is ready.");
+             setIsRecording(false);
+             recognitionRef.current = null;
+        }
+    }
+}, [isRecording, browserSupportsSpeechRecognition, selectedLanguage]);
+
+
+  // Filter voices (keep as is)
   const filteredVoices = voices.filter((voice) =>
-    voice.languageCodes?.includes(selectedLanguage) // Safe access
+    voice.languageCodes?.includes(selectedLanguage)
   );
 
-  // Function to get display label for language code (simple version)
-  // You might replace this with a more sophisticated lookup if needed
+  // Get language label (keep as is)
   const getLanguageLabel = (code: string): string => {
      try {
+        // Use Intl.DisplayNames for better language names if available
         const display = new Intl.DisplayNames(['en'], { type: 'language' });
-        return display.of(code.split('-')[0]) || code; // Get base language name
+        // Get the base language code (e.g., 'en' from 'en-US')
+        const baseCode = code.split('-')[0];
+        return display.of(baseCode) || code; // Fallback to the original code
      } catch (e) {
-        return code; // Fallback to code if Intl fails
+        return code; // Fallback if Intl.DisplayNames fails
      }
   };
 
-   return (
+  // == JSX Rendering ==
+  return (
     <div className={`min-h-screen flex flex-col ${isDarkMode ? 'dark bg-gray-900 text-white' : 'light bg-gradient-to-br from-indigo-300 via-purple-100 to-blue-50'}`}>
-      {/* Header Bar */}
-      <header className={`fixed top-0 left-0 right-0 z-10 ${isDarkMode ? 'bg-gray-800' : 'bg-white bg-opacity-80 backdrop-blur-md'} shadow-md`}>
+      {/* Header Bar (keep as is) */}
+       <header className={`fixed top-0 left-0 right-0 z-10 ${isDarkMode ? 'bg-gray-800' : 'bg-white bg-opacity-80 backdrop-blur-md'} shadow-md`}>
         <div className="container mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center space-x-2">
-         
-
             <motion.div
               className={`rounded-full ${isDarkMode ? 'bg-indigo-700' : 'bg-indigo-600'} p-2`}
               whileHover={{ scale: 1.1, rotate: 5 }}
               whileTap={{ scale: 0.95 }}
-            >
-              <AudioWaveform className="text-white w-5 h-5" />
-            </motion.div>
-
+            > <AudioWaveform className="text-white w-5 h-5" /> </motion.div>
               <h1 className="text-xl font-bold">Voice Synthesizer Pro</h1>
- 
           </div>
-
           <div className="flex items-center space-x-4">
-            <Link href={'/'}>
-                  <h1 className="text-xl font-bold">Home</h1>
-            </Link>
-
-            <motion.button
+             <Link href={'/'}> <h1 className="text-xl font-bold">Home</h1> </Link>
+             <motion.button
               className={`p-2 rounded-full ${isDarkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 hover:bg-gray-300'}`}
               onClick={() => setIsDarkMode(!isDarkMode)}
-              whileHover={{ scale: 1.1 }}
-              whileTap={{ scale: 0.9 }}
+              whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }}
               aria-label={isDarkMode ? "Switch to light mode" : "Switch to dark mode"}
             >
-               {isDarkMode ? (
-                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}> <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" /> </svg>
-              ) : (
-                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}> <path strokeLinecap="round" strokeLinejoin="round" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" /> </svg>
-              )}
+               {isDarkMode ? ( <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}> <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" /> </svg>
+              ) : ( <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}> <path strokeLinecap="round" strokeLinejoin="round" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" /> </svg> )}
             </motion.button>
           </div>
-          
         </div>
       </header>
 
@@ -464,50 +572,96 @@ const VoiceSynthesizer: React.FC = () => {
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: 0.1 }}
               >
-                {/* Text Input */}
-                <div className="space-y-1">
-                  <label htmlFor="text" className={`block text-sm font-medium ${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`}>
-                    Text to Convert
-                  </label>
+                {/* Text Input Area */}
+                <div className="space-y-1 relative"> {/* Added relative positioning */}
+                  <div className="flex justify-between items-center mb-1">
+                     <label htmlFor="text" className={`block text-sm font-medium ${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`}>
+                       Text to Convert
+                     </label>
+                     {/* --- Microphone Button --- */}
+                     {browserSupportsSpeechRecognition ? (
+                        <motion.button
+                           onClick={handleToggleRecording}
+                           className={`p-1.5 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-offset-1 ${ isDarkMode ? 'focus:ring-offset-gray-800' : 'focus:ring-offset-white' }
+                           ${isRecording
+                              ? 'bg-red-500 hover:bg-red-600 text-white focus:ring-red-400'
+                              : isDarkMode
+                                ? 'bg-gray-600 hover:bg-gray-500 text-gray-200 focus:ring-indigo-400'
+                                : 'bg-gray-200 hover:bg-gray-300 text-gray-600 focus:ring-indigo-500'
+                           }`}
+                           title={isRecording ? "Stop Recording" : "Start Recording"}
+                           aria-label={isRecording ? "Stop voice input" : "Start voice input"}
+                           whileHover={{ scale: 1.1 }}
+                           whileTap={{ scale: 0.9 }}
+                        >
+                           {isRecording ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                        </motion.button>
+                     ) : (
+                         <div className="flex items-center space-x-1 text-xs text-gray-500" title="Speech recognition not available in this browser">
+                             <AlertCircle className="w-3 h-3"/> <span>Mic Off</span>
+                         </div>
+                     )}
+                  </div>
                   <textarea
                     id="text"
                     ref={textareaRef}
                     value={text}
                     onChange={handleTextChange}
-                    rows={6} // Initial rows, will resize
-                    className={`shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm ${isDarkMode ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' : 'border-gray-300 text-gray-900'} rounded-md resize-y p-3 overflow-y-hidden`} // resize-y and overflow-hidden for auto-resize
-                    placeholder="Type or paste your text here..."
+                    rows={6} // Initial rows
+                    className={`shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm ${isDarkMode ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' : 'border-gray-300 text-gray-900'} rounded-md resize-y p-3 overflow-y-hidden`}
+                    placeholder={isRecording ? "Listening..." : "Type, paste, or use the mic..."}
+                    disabled={isRecording} // Optionally disable typing while recording
                   />
-                  <div className="flex justify-between items-center">
+                  {/* Character count & Clear button */}
+                  <div className="flex justify-between items-center mt-1">
                      <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                        {text.length === 0 ? 'Enter some text' : `${text.length} characters`}
+                        {text.length === 0 ? 'Enter text or start recording' : `${text.length} characters`}
                      </p>
-                     {text.length > 0 && (
+                     {text.length > 0 && !isRecording && (
                         <motion.button
                           className={`text-xs ${isDarkMode ? 'text-indigo-400 hover:text-indigo-300' : 'text-indigo-600 hover:text-indigo-800'}`}
                           onClick={() => setText('')} whileTap={{ scale: 0.95 }}
                         > Clear text </motion.button>
                       )}
                   </div>
+                   {/* STT Status/Error Message */}
+                    {isRecording && (
+                        <p className="text-xs text-center text-blue-500 mt-1 animate-pulse">Listening...</p>
+                    )}
+                    <AnimatePresence>
+                     {sttError && (
+                        <motion.div
+                           className={`flex items-center ${isDarkMode ? 'bg-yellow-900 border-yellow-700 text-yellow-300' : 'bg-yellow-100 border border-yellow-300 text-yellow-800'} p-2 rounded-md space-x-2 text-xs mt-2`}
+                           initial={{ opacity: 0, height: 0 }}
+                           animate={{ opacity: 1, height: 'auto' }}
+                           exit={{ opacity: 0, height: 0 }}
+                           transition={{ duration: 0.3 }}
+                        >
+                           <AlertTriangle className="w-4 h-4 flex-shrink-0"/>
+                           <span>{sttError}</span>
+                           <button onClick={() => setSttError('')} className="ml-auto text-inherit opacity-70 hover:opacity-100"> <X className="w-3 h-3" /> </button>
+                        </motion.div>
+                     )}
+                    </AnimatePresence>
                 </div>
 
-                 {/* Success Message */}
+                 {/* TTS Success Message */}
                  <AnimatePresence>
                     {isConversionSuccess && (
                         <motion.div
-                        className={`flex items-center ${isDarkMode ? 'bg-green-900 border-green-700 text-green-300' : 'bg-green-100 border border-green-300 text-green-800'} p-3 rounded-lg space-x-3 text-sm`}
-                        initial={{ opacity: 0, height: 0, marginBottom: 0 }}
-                        animate={{ opacity: 1, height: 'auto', marginBottom: '1.25rem' }}
-                        exit={{ opacity: 0, height: 0, marginBottom: 0 }}
-                        transition={{ duration: 0.3 }}
+                           className={`flex items-center ${isDarkMode ? 'bg-green-900 border-green-700 text-green-300' : 'bg-green-100 border border-green-300 text-green-800'} p-3 rounded-lg space-x-3 text-sm`}
+                           initial={{ opacity: 0, height: 0, marginBottom: 0 }}
+                           animate={{ opacity: 1, height: 'auto', marginBottom: '1.25rem' }}
+                           exit={{ opacity: 0, height: 0, marginBottom: 0 }}
+                           transition={{ duration: 0.3 }}
                         >
-                        <Check className={`w-5 h-5 ${isDarkMode ? 'text-green-400' : 'text-green-600'} flex-shrink-0`} />
-                        <span>Speech successfully generated!</span>
+                           <Check className={`w-5 h-5 ${isDarkMode ? 'text-green-400' : 'text-green-600'} flex-shrink-0`} />
+                           <span>Speech successfully generated!</span>
                         </motion.div>
                     )}
                  </AnimatePresence>
 
-                {/* Error Handling */}
+                {/* TTS Error Handling */}
                 <AnimatePresence>
                   {error && (
                     <motion.div
@@ -518,12 +672,7 @@ const VoiceSynthesizer: React.FC = () => {
                       transition={{ duration: 0.3 }}
                     >
                       <AlertTriangle className={`w-5 h-5 ${isDarkMode ? 'text-red-400' : 'text-red-600'} flex-shrink-0 mt-0.5`} />
-                      <div className="flex flex-col flex-grow">
-                        {/* Using simplified error display */}
-                        <p className="flex-grow">{error}</p>
-                        {/* You can add the show/hide detailed error logic back here if needed */}
-                        {/* {showDetailedError ? (...) : (...)} */}
-                      </div>
+                      <div className="flex flex-col flex-grow"> <p className="flex-grow">{error}</p> </div>
                       <motion.button
                          className={`ml-auto ${isDarkMode ? 'text-red-400 hover:text-red-300' : 'text-red-600 hover:text-red-800'} flex-shrink-0`}
                          whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }}
@@ -534,48 +683,41 @@ const VoiceSynthesizer: React.FC = () => {
                   )}
                 </AnimatePresence>
 
-                {/* Language and Voice Selection */}
+                {/* Language and Voice Selection (Disable during STT recording too) */}
                 <div className="grid grid-cols-1 gap-4">
-                  {/* Language Dropdown */}
                   <div>
                     <label htmlFor="language" className={`block text-sm font-medium ${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`}> Language </label>
                     <select
                       id="language" value={selectedLanguage} onChange={handleLanguageChange}
-                      // Disable while loading voices OR during conversion
-                      disabled={isLoading || languages.length === 0}
+                      disabled={isLoading || languages.length === 0 || isRecording} // Disable while recording
                       className={`mt-1 block w-full pl-3 pr-10 py-2 text-base ${
                         isDarkMode ? 'bg-gray-700 border-gray-600 text-white disabled:bg-gray-800 disabled:text-gray-500'
                                    : 'border-gray-300 text-gray-900 disabled:bg-gray-100 disabled:text-gray-500'
                         } focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md disabled:cursor-not-allowed`}
                     >
-                      {languages.length === 0 && !error && <option disabled>Loading languages...</option>}
+                      {/* Options remain the same */}
+                       {languages.length === 0 && !error && <option disabled>Loading languages...</option>}
                       {languages.length === 0 && error && <option disabled>Failed to load</option>}
-                      {languages.map((code) => (
-                        <option key={code} value={code}>
-                          {getLanguageLabel(code)} ({code}) {/* Display friendly name + code */}
-                        </option>
-                      ))}
+                      {languages.map((code) => ( <option key={code} value={code}> {getLanguageLabel(code)} ({code}) </option> ))}
                     </select>
                   </div>
-                  {/* Voice Dropdown */}
                   <div>
                     <label htmlFor="voice" className={`block text-sm font-medium ${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`}> Voice </label>
                     <select
                       id="voice" value={voiceName} onChange={handleVoiceChange}
-                      // Disable if loading, no language selected, or no voices for language
-                      disabled={isLoading || !selectedLanguage || filteredVoices.length === 0}
+                      disabled={isLoading || !selectedLanguage || filteredVoices.length === 0 || isRecording} // Disable while recording
                       className={`mt-1 block w-full pl-3 pr-10 py-2 text-base ${
                          isDarkMode ? 'bg-gray-700 border-gray-600 text-white disabled:bg-gray-800 disabled:text-gray-500'
                                     : 'border-gray-300 text-gray-900 disabled:bg-gray-100 disabled:text-gray-500'
                          } focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md disabled:cursor-not-allowed`}
                     >
+                      {/* Options remain the same */}
                       <option value="">Select voice</option>
                       {filteredVoices.length === 0 && selectedLanguage && <option disabled>No voices for {selectedLanguage}</option>}
                       {filteredVoices.length === 0 && !selectedLanguage && <option disabled>Select language first</option>}
                       {filteredVoices.map((voice) => (
-                        // Display voice name details (similar to Converter)
                         <option key={voice.name} value={voice.name}>
-                          {voice.name.split('-').slice(2).join('-')} {/* Nicer name */}
+                          {voice.name.split('-').slice(2).join('-')}
                           {voice.ssmlGender ? ` (${voice.ssmlGender.toLowerCase()})` : ''}
                         </option>
                       ))}
@@ -583,34 +725,33 @@ const VoiceSynthesizer: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Advanced Settings Toggle */}
+                {/* Advanced Settings Toggle & Panel (Disable sliders during STT recording) */}
                 <div className="pt-2">
                     <button type="button"
-                        className={`${isDarkMode ? 'text-indigo-400 hover:text-indigo-300' : 'text-indigo-600 hover:text-indigo-800'} font-medium text-sm flex items-center space-x-1.5 group`}
+                        className={`${isDarkMode ? 'text-indigo-400 hover:text-indigo-300' : 'text-indigo-600 hover:text-indigo-800'} font-medium text-sm flex items-center space-x-1.5 group disabled:opacity-50 disabled:cursor-not-allowed`}
                         onClick={() => setShowAdvanced(!showAdvanced)} aria-expanded={showAdvanced}
+                        disabled={isRecording} // Disable toggle when recording
                     >
                         <Settings className="w-4 h-4 group-hover:rotate-12 transition-transform" />
                         <span>Advanced Settings</span>
                         {showAdvanced ? <ChevronUp className="w-4 h-4 text-gray-500" /> : <ChevronDown className="w-4 h-4 text-gray-500" />}
                     </button>
                 </div>
-
-                {/* Advanced Settings Panel */}
                 <AnimatePresence>
                     {showAdvanced && (
                         <motion.div
-                        className={`space-y-4 border rounded-lg p-4 ${isDarkMode ? 'bg-gray-700 border-gray-600' : 'bg-gray-50 border-gray-200'}`}
-                        initial={{ height: 0, opacity: 0, marginTop: 0, paddingTop: 0, paddingBottom: 0 }}
-                        animate={{ height: 'auto', opacity: 1, marginTop: '0.5rem', paddingTop: '1rem', paddingBottom: '1rem' }}
-                        exit={{ height: 0, opacity: 0, marginTop: 0, paddingTop: 0, paddingBottom: 0 }}
-                        transition={{ duration: 0.3, ease: "easeInOut" }}
+                           className={`space-y-4 border rounded-lg p-4 ${isDarkMode ? 'bg-gray-700 border-gray-600' : 'bg-gray-50 border-gray-200'} ${isRecording ? 'opacity-50 pointer-events-none' : ''}`} // Fade out and disable interaction when recording
+                           initial={{ height: 0, opacity: 0, marginTop: 0, paddingTop: 0, paddingBottom: 0 }}
+                           animate={{ height: 'auto', opacity: isRecording ? 0.5 : 1, marginTop: '0.5rem', paddingTop: '1rem', paddingBottom: '1rem' }}
+                           exit={{ height: 0, opacity: 0, marginTop: 0, paddingTop: 0, paddingBottom: 0 }}
+                           transition={{ duration: 0.3, ease: "easeInOut" }}
                         >
                             {/* Pitch */}
                             <div className="grid grid-cols-6 items-center gap-2">
                                 <label htmlFor="pitch" className={`block text-sm font-medium ${isDarkMode ? 'text-gray-200' : 'text-gray-700'} col-span-1`}> Pitch </label>
                                 <input type="range" id="pitch" min="-20" max="20" step="1" value={pitch} onChange={handlePitchChange}
                                     className={`w-full h-2 ${isDarkMode ? 'bg-gray-600' : 'bg-gray-200'} rounded-lg appearance-none cursor-pointer accent-indigo-600 col-span-4`}
-                                    aria-valuetext={`${pitch}`} disabled={isLoading} // Disable during loading
+                                    aria-valuetext={`${pitch}`} disabled={isLoading || isRecording} // Disable during loading/recording
                                 />
                                 <span className={`text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-600'} text-right col-span-1 w-10`}>{pitch.toFixed(0)}</span>
                             </div>
@@ -619,28 +760,27 @@ const VoiceSynthesizer: React.FC = () => {
                                 <label htmlFor="speakingRate" className={`block text-sm font-medium ${isDarkMode ? 'text-gray-200' : 'text-gray-700'} col-span-1`}> Rate </label>
                                 <input type="range" id="speakingRate" min="0.25" max="4.0" step="0.05" value={speakingRate} onChange={handleRateChange}
                                     className={`w-full h-2 ${isDarkMode ? 'bg-gray-600' : 'bg-gray-200'} rounded-lg appearance-none cursor-pointer accent-indigo-600 col-span-4`}
-                                    aria-valuetext={`${speakingRate.toFixed(2)}x`} disabled={isLoading} // Disable during loading
+                                    aria-valuetext={`${speakingRate.toFixed(2)}x`} disabled={isLoading || isRecording} // Disable during loading/recording
                                 />
                                 <span className={`text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-600'} text-right col-span-1 w-10`}>{speakingRate.toFixed(2)}x</span>
                             </div>
                             {/* Volume Control (Playback) */}
                             <div className="grid grid-cols-6 items-center gap-2">
                                 <label htmlFor="volume" className={`block text-sm font-medium ${isDarkMode ? 'text-gray-200' : 'text-gray-700'} col-span-1`}> Volume </label>
-                                <input type="range" id="volume" min="0" max="1" step="0.01" value={isMuted ? 0 : volume} onChange={handleVolumeChange} disabled={isMuted}
+                                <input type="range" id="volume" min="0" max="1" step="0.01" value={isMuted ? 0 : volume} onChange={handleVolumeChange} disabled={isMuted || isRecording} // Disable if muted or recording
                                     className={`w-full h-2 ${isDarkMode ? 'bg-gray-600' : 'bg-gray-200'} rounded-lg appearance-none cursor-pointer accent-indigo-600 col-span-4 ${isMuted ? 'opacity-50 cursor-not-allowed' : ''}`}
                                 />
                                 <button onClick={handleMuteToggle}
-                                    className={`text-sm ${isDarkMode ? 'text-gray-300 hover:text-white' : 'text-gray-600 hover:text-gray-900'} col-span-1 w-10 flex justify-center items-center`}
+                                    className={`text-sm ${isDarkMode ? 'text-gray-300 hover:text-white' : 'text-gray-600 hover:text-gray-900'} col-span-1 w-10 flex justify-center items-center disabled:opacity-50 disabled:cursor-not-allowed`}
                                     aria-label={isMuted ? 'Unmute' : 'Mute'}
+                                    disabled={isRecording} // Disable mute toggle when recording
                                 > {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />} </button>
                             </div>
-                             {/* Model Quality Placeholder */}
-                            {/* <div className="grid grid-cols-6 items-center gap-2"> ... </div> */}
                         </motion.div>
                     )}
                 </AnimatePresence>
 
-                {/* Convert Button */}
+                {/* Convert Button (Disable during STT recording) */}
                 <motion.button
                   className={`w-full font-bold py-3 px-4 rounded-md transition duration-300 focus:outline-none focus:ring-2 focus:ring-offset-2 ${ isDarkMode ? 'focus:ring-offset-gray-800 focus:ring-indigo-400' : 'focus:ring-offset-white focus:ring-indigo-500' } flex items-center justify-center space-x-2 mt-4 disabled:opacity-50 disabled:cursor-not-allowed
                     ${isLoading
@@ -648,10 +788,9 @@ const VoiceSynthesizer: React.FC = () => {
                       : isDarkMode ? 'bg-indigo-600 hover:bg-indigo-500 text-white' : 'bg-indigo-600 hover:bg-indigo-700 text-white'
                     }`}
                   onClick={handleConvert}
-                  // Disable if loading, or inputs are invalid
-                  disabled={isLoading || !text.trim() || !voiceName || !selectedLanguage}
-                  whileHover={!isLoading && text.trim() && voiceName && selectedLanguage ? { scale: 1.03, boxShadow: "0px 5px 15px rgba(99, 102, 241, 0.4)" } : {}}
-                  whileTap={!isLoading && text.trim() && voiceName && selectedLanguage ? { scale: 0.98 } : {}}
+                  disabled={isLoading || !text.trim() || !voiceName || !selectedLanguage || isRecording} // Also disable while recording
+                  whileHover={!isLoading && !isRecording && text.trim() && voiceName && selectedLanguage ? { scale: 1.03, boxShadow: "0px 5px 15px rgba(99, 102, 241, 0.4)" } : {}}
+                  whileTap={!isLoading && !isRecording && text.trim() && voiceName && selectedLanguage ? { scale: 0.98 } : {}}
                   transition={{ type: "spring", stiffness: 400, damping: 17 }}
                 >
                   {isLoading ? (
@@ -663,21 +802,18 @@ const VoiceSynthesizer: React.FC = () => {
               </motion.div>
             </div>
 
-            {/* Right Panel - Visualization & Player */}
-            <div className={`lg:col-span-3 ${isDarkMode ? 'bg-gray-900' : 'bg-gradient-to-br from-indigo-600 to-purple-600'} p-6 text-white`}>
+            {/* Right Panel - Visualization & Player (Keep as is) */}
+             <div className={`lg:col-span-3 ${isDarkMode ? 'bg-gray-900' : 'bg-gradient-to-br from-indigo-600 to-purple-600'} p-6 text-white`}>
                <motion.div className="h-full flex flex-col" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.2 }}>
-                 {/* Header */}
                  <div className="flex items-center justify-between mb-4">
                     <h2 className="text-white text-xl font-bold">Audio Output</h2>
                     <div className={`px-3 py-1 rounded-full text-xs font-medium flex items-center space-x-1.5 ${audioUrl ? 'bg-green-500 text-white' : (isLoading && !error ? 'bg-yellow-500 text-black' : 'bg-gray-500 text-white')}`}>
                        <span>{isLoading ? 'Processing' : (audioUrl ? 'Ready' : 'Idle')}</span>
                     </div>
                  </div>
-                 {/* Visualization Area */}
                  <div className="flex-grow flex items-center justify-center mb-6 min-h-[200px]">
                     {audioUrl ? (
                         <div className="w-full h-full flex flex-col items-center justify-center">
-                            {/* Waveform */}
                             <div className="w-full h-32 md:h-40 mb-4 relative overflow-hidden">
                                 <motion.div className="absolute inset-0 flex items-end justify-around space-x-px" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }}>
                                 {[...Array(60)].map((_, i) => (
@@ -689,7 +825,6 @@ const VoiceSynthesizer: React.FC = () => {
                                     /> ))}
                                 </motion.div>
                             </div>
-                            {/* Progress Bar */}
                             <div className="w-full h-2 bg-white bg-opacity-20 rounded-full overflow-hidden cursor-pointer" onClick={(e) => {
                                 if (audioRef.current && duration > 0) {
                                     const rect = e.currentTarget.getBoundingClientRect(); const clickX = e.clientX - rect.left; const percentage = clickX / rect.width;
@@ -698,7 +833,7 @@ const VoiceSynthesizer: React.FC = () => {
                                 <motion.div className="h-full bg-white" initial={{ width: '0%'}} animate={{ width: `${duration ? (currentTime / duration) * 100 : 0}%` }} transition={{ duration: 0.1, ease: "linear" }} />
                             </div>
                         </div>
-                        ) : ( /* Idle/Loading State */
+                        ) : (
                         <div className="text-center py-10">
                            <motion.div className="inline-block mb-4 p-4 rounded-full bg-white bg-opacity-10" animate={{ scale: [1, 1.05, 1], opacity: [0.5, 0.8, 0.5] }} transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}>
                               <AudioWaveform className="w-12 h-12 text-white opacity-75" />
@@ -709,8 +844,6 @@ const VoiceSynthesizer: React.FC = () => {
                         </div>
                         )}
                     </div>
-
-                 {/* Audio Player Controls */}
                  <AnimatePresence>
                     {audioUrl && (
                         <motion.div
@@ -719,23 +852,18 @@ const VoiceSynthesizer: React.FC = () => {
                         >
                             <audio ref={audioRef} src={audioUrl} preload="metadata" className="hidden" key={audioUrl} />
                             <div className="flex flex-col space-y-4">
-                                {/* Time display */}
                                 <div className={`flex justify-between text-xs ${isDarkMode ? 'text-gray-300' : 'text-gray-100'} font-mono`}>
                                 <span>{formatTime(currentTime)}</span> <span>{formatTime(duration)}</span>
                                 </div>
-                                {/* Control buttons */}
                                 <div className="flex items-center justify-center space-x-6">
-                                    {/* Mute */}
                                     <motion.button
                                         className={`p-2 rounded-full ${isDarkMode ? 'text-gray-300 hover:text-white bg-white bg-opacity-10 hover:bg-opacity-20' : 'text-gray-200 hover:text-white bg-black bg-opacity-10 hover:bg-opacity-20'} focus:outline-none focus:ring-2 focus:ring-white focus:ring-opacity-50`}
                                         onClick={handleMuteToggle} aria-label={isMuted ? 'Unmute' : 'Mute'} whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }}
                                     > {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />} </motion.button>
-                                    {/* Play/Pause */}
                                     <motion.button
                                         className={`p-4 rounded-full ${isDarkMode ? 'bg-white text-indigo-700 hover:bg-gray-200' : 'bg-white text-indigo-700 hover:bg-gray-200'} focus:outline-none focus:ring-2 focus:ring-white focus:ring-opacity-75 shadow-lg`}
                                         onClick={handlePlayPause} aria-label={isPlaying ? 'Pause' : 'Play'} whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
                                     > {isPlaying ? <Pause className="w-6 h-6" fill="currentColor"/> : <Play className="w-6 h-6 ml-1" fill="currentColor"/>} </motion.button>
-                                    {/* Download */}
                                     <motion.button
                                         className={`p-2 rounded-full ${isDarkMode ? 'text-gray-300 hover:text-white bg-white bg-opacity-10 hover:bg-opacity-20' : 'text-gray-200 hover:text-white bg-black bg-opacity-10 hover:bg-opacity-20'} focus:outline-none focus:ring-2 focus:ring-white focus:ring-opacity-50`}
                                         onClick={handleDownload} aria-label="Download Audio" title="Download MP3" whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }}
@@ -745,33 +873,29 @@ const VoiceSynthesizer: React.FC = () => {
                         </motion.div>
                     )}
                  </AnimatePresence>
-
-                 {/* Info cards */}
                  <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
-                     {/* Voices Info */}
                     <motion.div className={`${isDarkMode ? 'bg-white bg-opacity-5' : 'bg-black bg-opacity-5'} p-4 rounded-lg`} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }}>
                        <h3 className={`${isDarkMode ? 'text-gray-200' : 'text-white'} text-sm font-semibold mb-2`}>Available Voices</h3>
                        <p className={`${isDarkMode ? 'text-gray-400' : 'text-gray-200'} text-xs`}>
                           {selectedLanguage ? `${filteredVoices.length} voice${filteredVoices.length !== 1 ? 's' : ''} for ${getLanguageLabel(selectedLanguage)}` : (languages.length > 0 ? 'Select a language' : (isLoading ? 'Loading...' : 'No voices found'))}
                        </p>
                     </motion.div>
-                    {/* Character Limits Info (Placeholder) */}
                     <motion.div className={`${isDarkMode ? 'bg-white bg-opacity-5' : 'bg-black bg-opacity-5'} p-4 rounded-lg`} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 }}>
                        <h3 className={`${isDarkMode ? 'text-gray-200' : 'text-white'} text-sm font-semibold mb-2`}>Usage Limits</h3>
                        <p className={`${isDarkMode ? 'text-gray-400' : 'text-gray-200'} text-xs`}> Character limits may apply per request. Check your API provider documentation. </p>
                     </motion.div>
                  </div>
                </motion.div>
-            </div> {/* End Right Panel */}
+            </div>
 
           </div> {/* End Main Grid */}
         </motion.div> {/* End Centered Container */}
       </main>
 
-      {/* Footer */}
-      <footer className={`py-4 px-6 text-center text-sm ${isDarkMode ? 'bg-gray-800 text-gray-400' : 'bg-white bg-opacity-70 text-gray-600'}`}>
+      {/* Footer (keep as is) */}
+       <footer className={`py-4 px-6 text-center text-sm ${isDarkMode ? 'bg-gray-800 text-gray-400' : 'bg-white bg-opacity-70 text-gray-600'}`}>
         <div className="container mx-auto">
-          <p>Voice Synthesizer Pro • Powered by Your TTS API</p>
+          <p>Voice Synthesizer Pro • Powered by Your TTS API & Browser Speech Recognition</p>
         </div>
       </footer>
     </div>
