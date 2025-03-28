@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, ChangeEvent } from 'react';
+import axios from 'axios'; // Import axios
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   AudioWaveform,
@@ -15,30 +16,50 @@ import {
   Download,
   Volume2,
   VolumeX,
-  Cpu
+  Cpu // Keep Cpu if you want the placeholder button
 } from 'lucide-react';
 
-// Define interfaces for language and voice data structures
-interface Language {
-  code: string;
-  label: string;
-}
-
+// Define interfaces for language and voice data structures (using the one from Converter)
 interface Voice {
   name: string;
-  ssmlGender: 'FEMALE' | 'MALE' | 'NEUTRAL'; // Using specific types
   languageCodes: string[];
+  ssmlGender?: string; // Optional as seen in Converter's usage
+  naturalSampleRateHertz?: number;
 }
 
-const VoiceSynthesizer: React.FC = () => { // Use React.FC for functional components
-  // State management
+// Define Language with label for better display (from VoiceSynthesizer)
+interface LanguageDisplay {
+  code: string;
+  label: string; // We might need to generate this or fetch it if API doesn't provide
+}
+
+
+// --- Helper function to convert base64 to Blob (from Converter) ---
+const base64ToBlob = (base64: string, mimeType: string): Blob => {
+  try {
+    const byteCharacters = atob(base64);
+    const byteNumbers = new Array(byteCharacters.length);
+    for (let i = 0; i < byteCharacters.length; i++) {
+      byteNumbers[i] = byteCharacters.charCodeAt(i);
+    }
+    const byteArray = new Uint8Array(byteNumbers);
+    return new Blob([byteArray], { type: mimeType });
+  } catch (e) {
+    console.error("Error decoding base64 string:", e);
+    // Return an empty blob or throw error, depending on desired handling
+    return new Blob([], { type: mimeType });
+  }
+};
+
+const VoiceSynthesizer: React.FC = () => {
+  // == State Management (Merged) ==
   const [text, setText] = useState<string>('');
   const [selectedLanguage, setSelectedLanguage] = useState<string>('');
   const [voiceName, setVoiceName] = useState<string>('');
   const [pitch, setPitch] = useState<number>(0);
   const [speakingRate, setSpeakingRate] = useState<number>(1);
   const [showAdvanced, setShowAdvanced] = useState<boolean>(false);
-  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [isLoading, setIsLoading] = useState<boolean>(false); // Handles both voice loading and conversion loading
   const [audioUrl, setAudioUrl] = useState<string>('');
   const [error, setError] = useState<string>('');
   const [showDetailedError, setShowDetailedError] = useState<boolean>(false);
@@ -46,246 +67,263 @@ const VoiceSynthesizer: React.FC = () => { // Use React.FC for functional compon
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [currentTime, setCurrentTime] = useState<number>(0);
   const [duration, setDuration] = useState<number>(0);
-  const [volume, setVolume] = useState<number>(1);
-  const [isMuted, setIsMuted] = useState<boolean>(false);
-  const [isDarkMode, setIsDarkMode] = useState<boolean>(false);
+  const [volume, setVolume] = useState<number>(1); // Kept from VoiceSynthesizer design
+  const [isMuted, setIsMuted] = useState<boolean>(false); // Kept from VoiceSynthesizer design
+  const [isDarkMode, setIsDarkMode] = useState<boolean>(false); // Kept from VoiceSynthesizer design
 
-  // Comprehensive list of languages with labels - Typed
-  const languagesWithLabels: Language[] = [
-    { code: 'ar-XA', label: 'Arabic' },
-    { code: 'bn-IN', label: 'Bengali (India)' },
-    { code: 'cmn-CN', label: 'Chinese (Mandarin)' },
-    { code: 'cs-CZ', label: 'Czech' },
-    { code: 'da-DK', label: 'Danish' },
-    { code: 'nl-NL', label: 'Dutch' },
-    { code: 'en-AU', label: 'English (Australia)' },
-    { code: 'en-GB', label: 'English (UK)' },
-    { code: 'en-IN', label: 'English (India)' },
-    { code: 'en-US', label: 'English (US)' },
-    { code: 'fil-PH', label: 'Filipino' },
-    { code: 'fi-FI', label: 'Finnish' },
-    { code: 'fr-CA', label: 'French (Canada)' },
-    { code: 'fr-FR', label: 'French (France)' },
-    { code: 'de-DE', label: 'German' },
-    { code: 'el-GR', label: 'Greek' },
-    { code: 'gu-IN', label: 'Gujarati' },
-    { code: 'hi-IN', label: 'Hindi' },
-    { code: 'hu-HU', label: 'Hungarian' },
-    { code: 'is-IS', label: 'Icelandic' },
-    { code: 'id-ID', label: 'Indonesian' },
-    { code: 'it-IT', label: 'Italian' },
-    { code: 'ja-JP', label: 'Japanese' },
-    { code: 'kn-IN', label: 'Kannada' },
-    { code: 'ko-KR', label: 'Korean' },
-    { code: 'ml-IN', label: 'Malayalam' },
-    { code: 'mr-IN', label: 'Marathi' },
-    { code: 'nb-NO', label: 'Norwegian' },
-    { code: 'pl-PL', label: 'Polish' },
-    { code: 'pt-BR', label: 'Portuguese (Brazil)' },
-    { code: 'pt-PT', label: 'Portuguese (Portugal)' },
-    { code: 'pa-IN', label: 'Punjabi' },
-    { code: 'ro-RO', label: 'Romanian' },
-    { code: 'ru-RU', label: 'Russian' },
-    { code: 'sr-RS', label: 'Serbian' },
-    { code: 'sk-SK', label: 'Slovak' },
-    { code: 'es-ES', label: 'Spanish (Spain)' },
-    { code: 'es-US', label: 'Spanish (US)' },
-    { code: 'sv-SE', label: 'Swedish' },
-    { code: 'ta-IN', label: 'Tamil' },
-    { code: 'te-IN', label: 'Telugu' },
-    { code: 'th-TH', label: 'Thai' },
-    { code: 'tr-TR', label: 'Turkish' },
-    { code: 'uk-UA', label: 'Ukrainian' },
-    { code: 'vi-VN', label: 'Vietnamese' }
-  ];
+  // State for API data (from Converter)
+  const [voices, setVoices] = useState<Voice[]>([]);
+  const [languages, setLanguages] = useState<string[]>([]); // List of language codes
 
-  // Extract just the language codes for backward compatibility
-  const languages: string[] = languagesWithLabels.map(lang => lang.code);
+  // Refs (from VoiceSynthesizer)
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Comprehensive list of voices with language codes - Typed
-  const voices: Voice[] = [
-    // English (US) voices
-    { name: 'en-US-Standard-A', ssmlGender: 'FEMALE', languageCodes: ['en-US'] },
-    { name: 'en-US-Standard-B', ssmlGender: 'MALE', languageCodes: ['en-US'] },
-    { name: 'en-US-Standard-C', ssmlGender: 'FEMALE', languageCodes: ['en-US'] },
-    { name: 'en-US-Standard-D', ssmlGender: 'MALE', languageCodes: ['en-US'] },
-    { name: 'en-US-Standard-E', ssmlGender: 'FEMALE', languageCodes: ['en-US'] },
-    { name: 'en-US-Standard-F', ssmlGender: 'FEMALE', languageCodes: ['en-US'] },
-    { name: 'en-US-Wavenet-A', ssmlGender: 'FEMALE', languageCodes: ['en-US'] },
-    { name: 'en-US-Wavenet-B', ssmlGender: 'MALE', languageCodes: ['en-US'] },
-    { name: 'en-US-Wavenet-C', ssmlGender: 'FEMALE', languageCodes: ['en-US'] },
-    { name: 'en-US-Wavenet-D', ssmlGender: 'MALE', languageCodes: ['en-US'] },
-    { name: 'en-US-Wavenet-E', ssmlGender: 'FEMALE', languageCodes: ['en-US'] },
-    { name: 'en-US-Wavenet-F', ssmlGender: 'FEMALE', languageCodes: ['en-US'] },
-    { name: 'en-US-Neural2-A', ssmlGender: 'FEMALE', languageCodes: ['en-US'] },
-    { name: 'en-US-Neural2-C', ssmlGender: 'FEMALE', languageCodes: ['en-US'] },
-    { name: 'en-US-Neural2-D', ssmlGender: 'MALE', languageCodes: ['en-US'] },
-    { name: 'en-US-Neural2-E', ssmlGender: 'FEMALE', languageCodes: ['en-US'] },
-    { name: 'en-US-Neural2-F', ssmlGender: 'FEMALE', languageCodes: ['en-US'] },
-    { name: 'en-US-Neural2-G', ssmlGender: 'FEMALE', languageCodes: ['en-US'] },
-    { name: 'en-US-Neural2-H', ssmlGender: 'FEMALE', languageCodes: ['en-US'] },
-    { name: 'en-US-Neural2-I', ssmlGender: 'MALE', languageCodes: ['en-US'] },
-    { name: 'en-US-Neural2-J', ssmlGender: 'MALE', languageCodes: ['en-US'] },
 
-    // Hindi voices
-    { name: 'hi-IN-Standard-A', ssmlGender: 'FEMALE', languageCodes: ['hi-IN'] },
-    { name: 'hi-IN-Standard-B', ssmlGender: 'MALE', languageCodes: ['hi-IN'] },
-    { name: 'hi-IN-Standard-C', ssmlGender: 'MALE', languageCodes: ['hi-IN'] },
-    { name: 'hi-IN-Standard-D', ssmlGender: 'FEMALE', languageCodes: ['hi-IN'] },
-    { name: 'hi-IN-Wavenet-A', ssmlGender: 'FEMALE', languageCodes: ['hi-IN'] },
-    { name: 'hi-IN-Wavenet-B', ssmlGender: 'MALE', languageCodes: ['hi-IN'] },
-    { name: 'hi-IN-Wavenet-C', ssmlGender: 'MALE', languageCodes: ['hi-IN'] },
-    { name: 'hi-IN-Wavenet-D', ssmlGender: 'FEMALE', languageCodes: ['hi-IN'] },
-    { name: 'hi-IN-Neural2-A', ssmlGender: 'FEMALE', languageCodes: ['hi-IN'] },
-    { name: 'hi-IN-Neural2-B', ssmlGender: 'MALE', languageCodes: ['hi-IN'] },
-    { name: 'hi-IN-Neural2-C', ssmlGender: 'MALE', languageCodes: ['hi-IN'] },
-    { name: 'hi-IN-Neural2-D', ssmlGender: 'FEMALE', languageCodes: ['hi-IN'] },
+  // == API Calls & Data Handling (from Converter, adapted) ==
 
-    // Spanish voices
-    { name: 'es-ES-Standard-A', ssmlGender: 'FEMALE', languageCodes: ['es-ES'] },
-    { name: 'es-ES-Standard-B', ssmlGender: 'MALE', languageCodes: ['es-ES'] },
-    { name: 'es-ES-Standard-C', ssmlGender: 'FEMALE', languageCodes: ['es-ES'] },
-    { name: 'es-ES-Standard-D', ssmlGender: 'FEMALE', languageCodes: ['es-ES'] },
-    { name: 'es-ES-Wavenet-B', ssmlGender: 'MALE', languageCodes: ['es-ES'] },
-    { name: 'es-ES-Neural2-A', ssmlGender: 'FEMALE', languageCodes: ['es-ES'] },
-    { name: 'es-ES-Neural2-B', ssmlGender: 'MALE', languageCodes: ['es-ES'] },
-    { name: 'es-ES-Neural2-C', ssmlGender: 'FEMALE', languageCodes: ['es-ES'] },
-    { name: 'es-ES-Neural2-D', ssmlGender: 'FEMALE', languageCodes: ['es-ES'] },
-    { name: 'es-ES-Neural2-E', ssmlGender: 'FEMALE', languageCodes: ['es-ES'] },
-    { name: 'es-ES-Neural2-F', ssmlGender: 'MALE', languageCodes: ['es-ES'] },
+  // Fetch available voices on component mount
+  useEffect(() => {
+    let isMounted = true; // Prevent state update on unmounted component
+    const fetchVoices = async () => {
+      setIsLoading(true);
+      setError(''); // Clear previous errors
+      try {
+        const response = await axios.get('/api/tts'); // Assuming GET fetches voices
+        console.log('API Voices Response:', response);
 
-    // French voices
-    { name: 'fr-FR-Standard-A', ssmlGender: 'FEMALE', languageCodes: ['fr-FR'] },
-    { name: 'fr-FR-Standard-B', ssmlGender: 'MALE', languageCodes: ['fr-FR'] },
-    { name: 'fr-FR-Standard-C', ssmlGender: 'FEMALE', languageCodes: ['fr-FR'] },
-    { name: 'fr-FR-Standard-D', ssmlGender: 'MALE', languageCodes: ['fr-FR'] },
-    { name: 'fr-FR-Standard-E', ssmlGender: 'FEMALE', languageCodes: ['fr-FR'] },
-    { name: 'fr-FR-Wavenet-A', ssmlGender: 'FEMALE', languageCodes: ['fr-FR'] },
-    { name: 'fr-FR-Wavenet-B', ssmlGender: 'MALE', languageCodes: ['fr-FR'] },
-    { name: 'fr-FR-Wavenet-C', ssmlGender: 'FEMALE', languageCodes: ['fr-FR'] },
-    { name: 'fr-FR-Wavenet-D', ssmlGender: 'MALE', languageCodes: ['fr-FR'] },
-    { name: 'fr-FR-Wavenet-E', ssmlGender: 'FEMALE', languageCodes: ['fr-FR'] },
-    { name: 'fr-FR-Neural2-A', ssmlGender: 'FEMALE', languageCodes: ['fr-FR'] },
-    { name: 'fr-FR-Neural2-B', ssmlGender: 'MALE', languageCodes: ['fr-FR'] },
-    { name: 'fr-FR-Neural2-C', ssmlGender: 'FEMALE', languageCodes: ['fr-FR'] },
-    { name: 'fr-FR-Neural2-D', ssmlGender: 'MALE', languageCodes: ['fr-FR'] },
-    { name: 'fr-FR-Neural2-E', ssmlGender: 'FEMALE', languageCodes: ['fr-FR'] },
+        if (!isMounted) return; // Exit if component unmounted
 
-    // German voices
-    { name: 'de-DE-Standard-A', ssmlGender: 'FEMALE', languageCodes: ['de-DE'] },
-    { name: 'de-DE-Standard-B', ssmlGender: 'MALE', languageCodes: ['de-DE'] },
-    { name: 'de-DE-Standard-C', ssmlGender: 'FEMALE', languageCodes: ['de-DE'] },
-    { name: 'de-DE-Standard-D', ssmlGender: 'MALE', languageCodes: ['de-DE'] },
-    { name: 'de-DE-Standard-E', ssmlGender: 'MALE', languageCodes: ['de-DE'] },
-    { name: 'de-DE-Standard-F', ssmlGender: 'FEMALE', languageCodes: ['de-DE'] },
-    { name: 'de-DE-Wavenet-A', ssmlGender: 'FEMALE', languageCodes: ['de-DE'] },
-    { name: 'de-DE-Wavenet-B', ssmlGender: 'MALE', languageCodes: ['de-DE'] },
-    { name: 'de-DE-Wavenet-C', ssmlGender: 'FEMALE', languageCodes: ['de-DE'] },
-    { name: 'de-DE-Wavenet-D', ssmlGender: 'MALE', languageCodes: ['de-DE'] },
-    { name: 'de-DE-Wavenet-E', ssmlGender: 'MALE', languageCodes: ['de-DE'] },
-    { name: 'de-DE-Wavenet-F', ssmlGender: 'FEMALE', languageCodes: ['de-DE'] },
+        const data = response.data;
+        const voiceList: Voice[] = data.voices || [];
 
-    // Add more voices for other languages as needed
-  ];
+        if (!Array.isArray(voiceList)) {
+            throw new Error("Invalid voice list format received from API.");
+        }
 
-  // Refs - Typed
-  const audioRef = useRef<HTMLAudioElement>(null); // Fix: Specify HTMLAudioElement type
-  const textareaRef = useRef<HTMLTextAreaElement>(null); // Fix: Specify HTMLTextAreaElement type
+        // Extract supported languages
+        const languageCodes = voiceList
+          .flatMap(voice => voice.languageCodes || []) // Use flatMap and handle missing languageCodes
+          .filter((code): code is string => typeof code === 'string' && code.length > 0);
 
-  // Filter voices based on selected language
-  const filteredVoices = voices.filter(
-    (voice) => voice.languageCodes.includes(selectedLanguage)
-  );
+        const languageSet = new Set(languageCodes);
+        const sortedLanguages = Array.from(languageSet).sort();
 
-  // Format time for audio player - Typed parameter
-  const formatTime = (seconds: number): string => { // Fix: Add number type to seconds
-    if (isNaN(seconds) || seconds < 0) return '0:00'; // Handle potential NaN or negative values
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.floor(seconds % 60);
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
+        setLanguages(sortedLanguages);
+        setVoices(voiceList);
+
+        // Set default language and voice more robustly
+        if (sortedLanguages.length > 0) {
+          // Try finding a common default like 'en-US' or the first language
+          let defaultLanguage = sortedLanguages.includes('en-US') ? 'en-US' : sortedLanguages[0];
+          setSelectedLanguage(defaultLanguage);
+
+          const defaultVoicesForLang = voiceList.filter(
+            (voice) => voice.languageCodes?.includes(defaultLanguage)
+          );
+
+          // Prefer a 'Standard' or 'Neural' voice if available, otherwise the first one
+          let defaultVoice = defaultVoicesForLang.find(v => v.name.includes('Standard'))
+                            || defaultVoicesForLang.find(v => v.name.includes('Neural'))
+                            || defaultVoicesForLang[0];
+
+          if (defaultVoice) {
+            setVoiceName(defaultVoice.name);
+          } else if (voiceList.length > 0) {
+             // Fallback if no voice found for default language (shouldn't happen if logic above is sound)
+             setVoiceName(voiceList[0].name);
+             if(voiceList[0].languageCodes?.length > 0) {
+                setSelectedLanguage(voiceList[0].languageCodes[0]);
+             }
+          }
+        }
+      } catch (err: any) {
+        console.error("Voice fetch error:", err);
+         if (isMounted) {
+            setError(`Failed to load voices: ${err.message || 'Check API setup & console.'}`);
+         }
+      } finally {
+         if (isMounted) {
+            setIsLoading(false);
+         }
+      }
+    };
+
+    fetchVoices();
+
+    return () => {
+        isMounted = false; // Cleanup function to set flag
+    }
+  }, []); // Empty dependency array ensures this runs only once on mount
+
+  // Handle text conversion (using logic from Converter)
+  const handleConvert = async () => {
+    // Reset previous states
+    setAudioUrl(''); // This will trigger the cleanup useEffect for the old URL
+    setError('');
+    setIsConversionSuccess(false);
+    setIsPlaying(false);
+    setCurrentTime(0);
+    setDuration(0);
+
+    // Validate input
+    if (!text.trim()) {
+      setError('Please enter some text to convert.');
+      return;
+    }
+    if (!selectedLanguage || !voiceName) {
+      setError('Please select a language and voice.');
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      console.log('Sending to API:', { text, languageCode: selectedLanguage, voiceName, pitch, speakingRate });
+      const response = await axios.post('/api/tts', { // Assuming POST synthesizes
+        text,
+        languageCode: selectedLanguage,
+        voiceName,
+        pitch,
+        speakingRate
+      });
+
+      const data = response.data;
+      console.log('API Synthesis Response:', data);
+
+      if (!data.audioContent) {
+        throw new Error("API response did not contain audio content.");
+      }
+
+      // Create a blob from the base64 audio content
+      const audioBlob = base64ToBlob(data.audioContent, 'audio/mp3');
+      if (audioBlob.size === 0) {
+        throw new Error("Failed to decode base64 audio content.");
+      }
+      const audioObjectUrl = URL.createObjectURL(audioBlob);
+
+      setAudioUrl(audioObjectUrl);
+      setIsConversionSuccess(true);
+
+      // Preload metadata for the new audio
+      if (audioRef.current) {
+        audioRef.current.src = audioObjectUrl; // Set src directly
+        audioRef.current.load();
+      }
+
+      // Auto-hide success message
+      setTimeout(() => {
+        setIsConversionSuccess(false);
+      }, 3000);
+
+    } catch (err: any) {
+      console.error("Conversion failed:", err);
+       const errorMsg = err.response?.data?.error || err.message || 'Please check API logs and configuration.';
+      setError(`Conversion failed: ${errorMsg}`);
+      // Consider setting showDetailedError based on error type?
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  // Auto-resize textarea
+  // == Lifecycle & Helpers (Merged) ==
+
+  // Clean up blob URL (from Converter)
   useEffect(() => {
-    // Fix: Check if textareaRef.current exists before accessing properties
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-      textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
-    }
-  }, [text]);
+    let currentAudioUrl = audioUrl; // Capture the URL in the effect closure
+    return () => {
+      if (currentAudioUrl && currentAudioUrl.startsWith('blob:')) {
+         console.log('Revoking Blob URL:', currentAudioUrl);
+         URL.revokeObjectURL(currentAudioUrl);
+      }
+    };
+  }, [audioUrl]); // Dependency: run cleanup when audioUrl *changes*
 
-  // Update audio player time
+  // Update audio player time (like in VoiceSynthesizer)
   useEffect(() => {
-    const audioElement = audioRef.current; // Store ref current in a variable
+    const audioElement = audioRef.current;
+    if (!audioElement) return;
 
-    // Fix: Check if audioElement exists before adding listeners
-    if (audioElement) {
-      const handleTimeUpdate = () => {
-        // Fix: Check current exists inside handler
-        if (audioRef.current) {
-            setCurrentTime(audioRef.current.currentTime);
-        }
-      };
+    const handleTimeUpdate = () => {
+      if (!isNaN(audioElement.currentTime)) { // Check for NaN
+        setCurrentTime(audioElement.currentTime);
+      }
+    };
 
-      const handleLoadedMetadata = () => {
-        // Fix: Check current exists inside handler
-        if (audioRef.current) {
-            setDuration(audioRef.current.duration);
-        }
-      };
+    const handleLoadedMetadata = () => {
+      if (!isNaN(audioElement.duration) && isFinite(audioElement.duration)) { // Check for NaN/Infinity
+        setDuration(audioElement.duration);
+      } else {
+        setDuration(0); // Reset if duration is invalid
+      }
+    };
 
-      const handleEnded = () => {
-        setIsPlaying(false);
-        setCurrentTime(0); // Reset time on end
-      };
+    const handleEnded = () => {
+      setIsPlaying(false);
+      setCurrentTime(0); // Reset time on end
+    };
 
-      audioElement.addEventListener('timeupdate', handleTimeUpdate);
-      audioElement.addEventListener('loadedmetadata', handleLoadedMetadata);
-      audioElement.addEventListener('ended', handleEnded);
+    audioElement.addEventListener('timeupdate', handleTimeUpdate);
+    audioElement.addEventListener('loadedmetadata', handleLoadedMetadata);
+    audioElement.addEventListener('ended', handleEnded);
 
-      // Cleanup function
-      return () => {
-        // Check again in cleanup
-        if (audioElement) {
-          audioElement.removeEventListener('timeupdate', handleTimeUpdate);
-          audioElement.removeEventListener('loadedmetadata', handleLoadedMetadata);
-          audioElement.removeEventListener('ended', handleEnded);
-        }
-      };
-    }
-  }, [audioUrl]); // Dependency remains audioUrl, as listeners setup relies on it changing
+    // Initial metadata load check in case 'loadedmetadata' fired before effect
+    handleLoadedMetadata();
 
-  // Apply volume settings to audio element
+    return () => {
+      audioElement.removeEventListener('timeupdate', handleTimeUpdate);
+      audioElement.removeEventListener('loadedmetadata', handleLoadedMetadata);
+      audioElement.removeEventListener('ended', handleEnded);
+    };
+  }, [audioUrl]); // Rerun when audioUrl changes
+
+  // Apply volume settings (from VoiceSynthesizer)
   useEffect(() => {
-    // Fix: Check if audioRef.current exists
     if (audioRef.current) {
       audioRef.current.volume = isMuted ? 0 : volume;
     }
   }, [volume, isMuted]);
 
-  // Handle theme change
+  // Handle theme change (from VoiceSynthesizer)
   useEffect(() => {
-    // Conditional rendering might remove body in some SSR frameworks, though unlikely here
     if (typeof document !== 'undefined') {
-      document.body.classList.toggle('dark', isDarkMode); // Use 'dark' for Tailwind compatibility
+      document.body.classList.toggle('dark', isDarkMode);
       document.body.classList.toggle('light', !isDarkMode);
     }
   }, [isDarkMode]);
 
-  // Handle play/pause button
+  // Auto-resize textarea (from VoiceSynthesizer)
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto'; // Reset height
+      textareaRef.current.style.height = `${Math.max(textareaRef.current.scrollHeight, 6 * 16)}px`; // Use scrollHeight, ensure min height approx 6 rows
+    }
+  }, [text]);
+
+
+  // == Event Handlers (Merged & Adapted) ==
+
+  // Format time (like in Converter, but ensure safety)
+  const formatTime = (seconds: number): string => {
+    if (isNaN(seconds) || seconds < 0 || !isFinite(seconds)) return '0:00';
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  // Play/Pause (like in Converter, adapted for VoiceSynthesizer structure)
   const handlePlayPause = () => {
-    // Fix: Check if audioRef.current exists
-    if (audioRef.current) {
+    if (audioRef.current && audioUrl) { // Check for audioUrl too
       if (isPlaying) {
         audioRef.current.pause();
       } else {
         // Ensure audio starts from beginning if it ended
-        if (audioRef.current.ended) {
+        if (audioRef.current.ended || Math.abs(audioRef.current.currentTime - duration) < 0.1) {
             audioRef.current.currentTime = 0;
         }
         audioRef.current.play().catch(err => {
             console.error("Error playing audio:", err);
-            setError("Could not play audio.");
+            setError("Could not play audio. Browser interaction might be needed.");
             setIsPlaying(false); // Reset state if play fails
         });
       }
@@ -293,95 +331,31 @@ const VoiceSynthesizer: React.FC = () => { // Use React.FC for functional compon
     }
   };
 
-  // Handle volume mute toggle
+  // Mute Toggle (from VoiceSynthesizer)
   const handleMuteToggle = () => {
     setIsMuted(!isMuted);
   };
 
-  // Handle download button
+  // Download (like in Converter, adapted)
   const handleDownload = () => {
-    if (!audioUrl) return; // Don't download if no URL
+    if (!audioUrl) return;
     const link = document.createElement('a');
     link.href = audioUrl;
-    // Try to generate a more meaningful name
-    const langLabel = languagesWithLabels.find(l => l.code === selectedLanguage)?.label || 'speech';
-    const voiceLabel = voiceName.split('-').slice(-2).join('_') || 'default';
+    // Generate filename (similar to VoiceSynthesizer's attempt)
+    const langLabel = selectedLanguage || 'lang';
+    const voiceLabel = voiceName.split('-').slice(-2).join('_') || 'voice';
     link.download = `${langLabel}_${voiceLabel}_${Date.now()}.mp3`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    // Consider revoking the object URL if it was created with URL.createObjectURL and is no longer needed elsewhere
-    // URL.revokeObjectURL(audioUrl); // But be careful if the URL is still used by the audio player
   };
 
-  // Handle detailed error toggle
+  // Detailed Error Toggle (like in VoiceSynthesizer)
   const handleShowDetailedError = () => {
     setShowDetailedError(!showDetailedError);
   };
 
-  // Handle text conversion
-  const handleConvert = async () => {
-    if (!text.trim() || !voiceName || !selectedLanguage) {
-        setError("Please enter text, select a language, and choose a voice.");
-        return;
-    }
-
-    setIsLoading(true);
-    setError('');
-    setIsConversionSuccess(false);
-    setAudioUrl(''); // Reset previous audio URL
-    setCurrentTime(0);
-    setDuration(0);
-    setIsPlaying(false);
-
-    // --- MOCK API CALL ---
-    // In a real app, replace this section with your actual API call
-    try {
-      console.log('Simulating API Call with:', {
-        text,
-        languageCode: selectedLanguage,
-        voiceName,
-        pitch,
-        speakingRate
-      });
-      // Simulate network delay
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-
-      // Simulate a successful response with a sample audio URL
-      // IMPORTANT: Replace this with the actual URL or base64 data from your API
-      // Using a sample MP3 file for demonstration
-      const sampleAudioUrl = 'https://interactive-examples.mdn.mozilla.net/media/cc0-audio/t-rex-roar.mp3';
-      // const sampleAudioUrl = 'https://audio-samples.github.io/samples/mp3/blizzard_primed.mp3'; // Previous sample
-
-
-      // If your API returns base64:
-      // const base64Audio = "BASE64_ENCODED_AUDIO_STRING"; // Replace with actual base64 data
-      // const audioBlob = await (await fetch(`data:audio/mp3;base64,${base64Audio}`)).blob();
-      // const url = URL.createObjectURL(audioBlob);
-      // setAudioUrl(url);
-
-      // Using direct URL for simplicity in this mock
-      setAudioUrl(sampleAudioUrl);
-      setIsConversionSuccess(true);
-
-      // Preload metadata to get duration quickly
-      if (audioRef.current) {
-        audioRef.current.src = sampleAudioUrl; // Set src on the actual audio element
-        audioRef.current.load(); // Request browser to load metadata
-      }
-
-    } catch (err: any) { // Catch block with type any or unknown
-      console.error("API Error:", err);
-      setError(`Failed to convert text to speech: ${err.message || 'Unknown error'}. Please try again.`);
-      // Provide more specific error messages based on actual API responses if possible
-    } finally {
-      setIsLoading(false);
-    }
-    // --- END MOCK API CALL ---
-  };
-
-
-  // Event handlers with explicit types
+  // Input Changes (Standard React handlers)
   const handleTextChange = (e: ChangeEvent<HTMLTextAreaElement>) => {
     setText(e.target.value);
   };
@@ -389,9 +363,9 @@ const VoiceSynthesizer: React.FC = () => { // Use React.FC for functional compon
   const handleLanguageChange = (e: ChangeEvent<HTMLSelectElement>) => {
     const newLang = e.target.value;
     setSelectedLanguage(newLang);
-    // Update voice to the first available voice for the selected language
+    // Reset voice selection when language changes
     const firstVoice = voices.find(
-      (voice) => voice.languageCodes.includes(newLang)
+      (voice) => voice.languageCodes?.includes(newLang) // Safe access
     );
     setVoiceName(firstVoice ? firstVoice.name : '');
   };
@@ -412,10 +386,24 @@ const VoiceSynthesizer: React.FC = () => { // Use React.FC for functional compon
     setVolume(Number(e.target.value));
   };
 
+  // Filter voices based on selected language (like in Converter)
+  const filteredVoices = voices.filter((voice) =>
+    voice.languageCodes?.includes(selectedLanguage) // Safe access
+  );
 
-  // Main renderer
+  // Function to get display label for language code (simple version)
+  // You might replace this with a more sophisticated lookup if needed
+  const getLanguageLabel = (code: string): string => {
+     try {
+        const display = new Intl.DisplayNames(['en'], { type: 'language' });
+        return display.of(code.split('-')[0]) || code; // Get base language name
+     } catch (e) {
+        return code; // Fallback to code if Intl fails
+     }
+  };
+
+  // == JSX Renderer (Using VoiceSynthesizer's structure) ==
   return (
-    // Use 'dark'/'light' classes for Tailwind dark mode
     <div className={`min-h-screen flex flex-col ${isDarkMode ? 'dark bg-gray-900 text-white' : 'light bg-gradient-to-br from-indigo-300 via-purple-100 to-blue-50'}`}>
       {/* Header Bar */}
       <header className={`fixed top-0 left-0 right-0 z-10 ${isDarkMode ? 'bg-gray-800' : 'bg-white bg-opacity-80 backdrop-blur-md'} shadow-md`}>
@@ -439,14 +427,11 @@ const VoiceSynthesizer: React.FC = () => { // Use React.FC for functional compon
               whileTap={{ scale: 0.9 }}
               aria-label={isDarkMode ? "Switch to light mode" : "Switch to dark mode"}
             >
+              {/* SVG icons for theme toggle */}
               {isDarkMode ? (
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
-                </svg>
+                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}> <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" /> </svg>
               ) : (
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
-                </svg>
+                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}> <path strokeLinecap="round" strokeLinejoin="round" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" /> </svg>
               )}
             </motion.button>
           </div>
@@ -471,6 +456,7 @@ const VoiceSynthesizer: React.FC = () => { // Use React.FC for functional compon
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: 0.1 }}
               >
+                {/* Text Input */}
                 <div className="space-y-1">
                   <label htmlFor="text" className={`block text-sm font-medium ${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`}>
                     Text to Convert
@@ -479,42 +465,39 @@ const VoiceSynthesizer: React.FC = () => { // Use React.FC for functional compon
                     id="text"
                     ref={textareaRef}
                     value={text}
-                    onChange={handleTextChange} // Use typed handler
-                    rows={6}
-                    className={`shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm ${isDarkMode ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' : 'border-gray-300 text-gray-900'} rounded-md resize-y p-3`} // Changed resize-vertical to resize-y
+                    onChange={handleTextChange}
+                    rows={6} // Initial rows, will resize
+                    className={`shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm ${isDarkMode ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' : 'border-gray-300 text-gray-900'} rounded-md resize-y p-3 overflow-y-hidden`} // resize-y and overflow-hidden for auto-resize
                     placeholder="Type or paste your text here..."
                   />
                   <div className="flex justify-between items-center">
-                    <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                      {text.length === 0 ? 'Enter some text to convert' : `${text.length} characters`}
-                    </p>
-                    {text.length > 0 && (
-                      <motion.button
-                        className={`text-xs ${isDarkMode ? 'text-indigo-400 hover:text-indigo-300' : 'text-indigo-600 hover:text-indigo-800'}`}
-                        onClick={() => setText('')}
-                        whileTap={{ scale: 0.95 }}
-                      >
-                        Clear text
-                      </motion.button>
-                    )}
+                     <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                        {text.length === 0 ? 'Enter some text' : `${text.length} characters`}
+                     </p>
+                     {text.length > 0 && (
+                        <motion.button
+                          className={`text-xs ${isDarkMode ? 'text-indigo-400 hover:text-indigo-300' : 'text-indigo-600 hover:text-indigo-800'}`}
+                          onClick={() => setText('')} whileTap={{ scale: 0.95 }}
+                        > Clear text </motion.button>
+                      )}
                   </div>
                 </div>
 
-                {/* Success message */}
-                <AnimatePresence>
-                  {isConversionSuccess && (
-                    <motion.div
-                      className={`flex items-center ${isDarkMode ? 'bg-green-900 border-green-700 text-green-300' : 'bg-green-100 border border-green-300 text-green-800'} p-3 rounded-lg space-x-3 text-sm`}
-                      initial={{ opacity: 0, height: 0, marginBottom: 0 }}
-                      animate={{ opacity: 1, height: 'auto', marginBottom: '1.25rem' }}
-                      exit={{ opacity: 0, height: 0, marginBottom: 0 }}
-                      transition={{ duration: 0.3 }}
-                    >
-                      <Check className={`w-5 h-5 ${isDarkMode ? 'text-green-400' : 'text-green-600'} flex-shrink-0`} />
-                      <span>Speech successfully generated!</span>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
+                 {/* Success Message */}
+                 <AnimatePresence>
+                    {isConversionSuccess && (
+                        <motion.div
+                        className={`flex items-center ${isDarkMode ? 'bg-green-900 border-green-700 text-green-300' : 'bg-green-100 border border-green-300 text-green-800'} p-3 rounded-lg space-x-3 text-sm`}
+                        initial={{ opacity: 0, height: 0, marginBottom: 0 }}
+                        animate={{ opacity: 1, height: 'auto', marginBottom: '1.25rem' }}
+                        exit={{ opacity: 0, height: 0, marginBottom: 0 }}
+                        transition={{ duration: 0.3 }}
+                        >
+                        <Check className={`w-5 h-5 ${isDarkMode ? 'text-green-400' : 'text-green-600'} flex-shrink-0`} />
+                        <span>Speech successfully generated!</span>
+                        </motion.div>
+                    )}
+                 </AnimatePresence>
 
                 {/* Error Handling */}
                 <AnimatePresence>
@@ -527,92 +510,65 @@ const VoiceSynthesizer: React.FC = () => { // Use React.FC for functional compon
                       transition={{ duration: 0.3 }}
                     >
                       <AlertTriangle className={`w-5 h-5 ${isDarkMode ? 'text-red-400' : 'text-red-600'} flex-shrink-0 mt-0.5`} />
-                      <div className="flex flex-col flex-grow"> {/* Added flex-grow */}
-                        {showDetailedError ? (
-                          <>
-                            <p>Detailed error placeholder: Check console or network tab for specifics.</p> {/* More informative placeholder */}
-                            <button // Changed to button for accessibility
-                              onClick={handleShowDetailedError}
-                              className={`${isDarkMode ? 'text-blue-400 hover:text-blue-300' : 'text-blue-500 hover:text-blue-700'} cursor-pointer text-left mt-1 text-xs`}
-                              >
-                              Hide Details
-                            </button>
-                          </>
-                        ) : (
-                          <>
-                            <p className="flex-grow">{error}</p>
-                            {/* Optionally show details button only for specific errors */}
-                            <button // Changed to button for accessibility
-                              onClick={handleShowDetailedError}
-                              className={`${isDarkMode ? 'text-blue-400 hover:text-blue-300' : 'text-blue-500 hover:text-blue-700'} cursor-pointer text-left mt-1 text-xs`}
-                              >
-                              Show Details
-                            </button>
-                          </>
-                        )}
+                      <div className="flex flex-col flex-grow">
+                        {/* Using simplified error display */}
+                        <p className="flex-grow">{error}</p>
+                        {/* You can add the show/hide detailed error logic back here if needed */}
+                        {/* {showDetailedError ? (...) : (...)} */}
                       </div>
-
                       <motion.button
-                        className={`ml-auto ${isDarkMode ? 'text-red-400 hover:text-red-300' : 'text-red-600 hover:text-red-800'} flex-shrink-0`}
-                        whileHover={{ scale: 1.1 }}
-                        whileTap={{ scale: 0.9 }}
-                        onClick={() => { setError(''); setShowDetailedError(false); }} // Reset detailed view too
-                        aria-label="Close error message"
-                      >
-                        <X className="w-4 h-4" />
-                      </motion.button>
+                         className={`ml-auto ${isDarkMode ? 'text-red-400 hover:text-red-300' : 'text-red-600 hover:text-red-800'} flex-shrink-0`}
+                         whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }}
+                         onClick={() => { setError(''); setShowDetailedError(false); }}
+                         aria-label="Close error message"
+                      > <X className="w-4 h-4" /> </motion.button>
                     </motion.div>
                   )}
                 </AnimatePresence>
 
                 {/* Language and Voice Selection */}
                 <div className="grid grid-cols-1 gap-4">
+                  {/* Language Dropdown */}
                   <div>
-                    <label htmlFor="language" className={`block text-sm font-medium ${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`}>
-                      Language
-                    </label>
+                    <label htmlFor="language" className={`block text-sm font-medium ${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`}> Language </label>
                     <select
-                      id="language"
-                      value={selectedLanguage}
-                      onChange={handleLanguageChange} // Use typed handler
+                      id="language" value={selectedLanguage} onChange={handleLanguageChange}
+                      // Disable while loading voices OR during conversion
                       disabled={isLoading || languages.length === 0}
                       className={`mt-1 block w-full pl-3 pr-10 py-2 text-base ${
-                        isDarkMode
-                          ? 'bg-gray-700 border-gray-600 text-white disabled:bg-gray-800 disabled:text-gray-500'
-                          : 'border-gray-300 text-gray-900 disabled:bg-gray-100 disabled:text-gray-500'
+                        isDarkMode ? 'bg-gray-700 border-gray-600 text-white disabled:bg-gray-800 disabled:text-gray-500'
+                                   : 'border-gray-300 text-gray-900 disabled:bg-gray-100 disabled:text-gray-500'
                         } focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md disabled:cursor-not-allowed`}
                     >
-                      <option value="">Select language</option>
-                      {languages.length === 0 && <option disabled>Loading languages...</option>}
-                      {languagesWithLabels.map((language) => (
-                        <option key={language.code} value={language.code}>
-                          {language.label} ({language.code})
+                      {languages.length === 0 && !error && <option disabled>Loading languages...</option>}
+                      {languages.length === 0 && error && <option disabled>Failed to load</option>}
+                      {languages.map((code) => (
+                        <option key={code} value={code}>
+                          {getLanguageLabel(code)} ({code}) {/* Display friendly name + code */}
                         </option>
                       ))}
                     </select>
                   </div>
-
+                  {/* Voice Dropdown */}
                   <div>
-                    <label htmlFor="voice" className={`block text-sm font-medium ${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`}>
-                      Voice
-                    </label>
+                    <label htmlFor="voice" className={`block text-sm font-medium ${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`}> Voice </label>
                     <select
-                      id="voice"
-                      value={voiceName}
-                      onChange={handleVoiceChange} // Use typed handler
-                      disabled={isLoading || !selectedLanguage || filteredVoices.length === 0} // Disable if no language or no voices
+                      id="voice" value={voiceName} onChange={handleVoiceChange}
+                      // Disable if loading, no language selected, or no voices for language
+                      disabled={isLoading || !selectedLanguage || filteredVoices.length === 0}
                       className={`mt-1 block w-full pl-3 pr-10 py-2 text-base ${
-                        isDarkMode
-                          ? 'bg-gray-700 border-gray-600 text-white disabled:bg-gray-800 disabled:text-gray-500'
-                          : 'border-gray-300 text-gray-900 disabled:bg-gray-100 disabled:text-gray-500'
-                        } focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md disabled:cursor-not-allowed`}
+                         isDarkMode ? 'bg-gray-700 border-gray-600 text-white disabled:bg-gray-800 disabled:text-gray-500'
+                                    : 'border-gray-300 text-gray-900 disabled:bg-gray-100 disabled:text-gray-500'
+                         } focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md disabled:cursor-not-allowed`}
                     >
                       <option value="">Select voice</option>
-                      {filteredVoices.length === 0 && selectedLanguage && <option disabled>No voices available for {selectedLanguage}</option>}
-                      {filteredVoices.length === 0 && !selectedLanguage && <option disabled>Select a language first</option>}
+                      {filteredVoices.length === 0 && selectedLanguage && <option disabled>No voices for {selectedLanguage}</option>}
+                      {filteredVoices.length === 0 && !selectedLanguage && <option disabled>Select language first</option>}
                       {filteredVoices.map((voice) => (
+                        // Display voice name details (similar to Converter)
                         <option key={voice.name} value={voice.name}>
-                          {voice.name.split('-').pop()} - {voice.ssmlGender.charAt(0) + voice.ssmlGender.slice(1).toLowerCase()}
+                          {voice.name.split('-').slice(2).join('-')} {/* Nicer name */}
+                          {voice.ssmlGender ? ` (${voice.ssmlGender.toLowerCase()})` : ''}
                         </option>
                       ))}
                     </select>
@@ -621,352 +577,193 @@ const VoiceSynthesizer: React.FC = () => { // Use React.FC for functional compon
 
                 {/* Advanced Settings Toggle */}
                 <div className="pt-2">
-                  <button
-                    type="button"
-                    className={`${isDarkMode ? 'text-indigo-400 hover:text-indigo-300' : 'text-indigo-600 hover:text-indigo-800'} font-medium text-sm flex items-center space-x-1.5 group`}
-                    onClick={() => setShowAdvanced(!showAdvanced)}
-                    aria-expanded={showAdvanced}
-                  >
-                    <Settings className="w-4 h-4 group-hover:rotate-12 transition-transform" />
-                    <span>Advanced Settings</span>
-                    {showAdvanced
-                      ? <ChevronUp className="w-4 h-4 text-gray-500" />
-                      : <ChevronDown className="w-4 h-4 text-gray-500" />
-                    }
-                  </button>
+                    <button type="button"
+                        className={`${isDarkMode ? 'text-indigo-400 hover:text-indigo-300' : 'text-indigo-600 hover:text-indigo-800'} font-medium text-sm flex items-center space-x-1.5 group`}
+                        onClick={() => setShowAdvanced(!showAdvanced)} aria-expanded={showAdvanced}
+                    >
+                        <Settings className="w-4 h-4 group-hover:rotate-12 transition-transform" />
+                        <span>Advanced Settings</span>
+                        {showAdvanced ? <ChevronUp className="w-4 h-4 text-gray-500" /> : <ChevronDown className="w-4 h-4 text-gray-500" />}
+                    </button>
                 </div>
 
                 {/* Advanced Settings Panel */}
                 <AnimatePresence>
-                  {showAdvanced && (
-                    <motion.div
-                      className={`space-y-4 border rounded-lg p-4 ${
-                        isDarkMode
-                          ? 'bg-gray-700 border-gray-600'
-                          : 'bg-gray-50 border-gray-200'
-                        }`}
-                      initial={{ height: 0, opacity: 0, marginTop: 0, paddingTop: 0, paddingBottom: 0 }}
-                      animate={{ height: 'auto', opacity: 1, marginTop: '0.5rem', paddingTop: '1rem', paddingBottom: '1rem' }}
-                      exit={{ height: 0, opacity: 0, marginTop: 0, paddingTop: 0, paddingBottom: 0 }}
-                      transition={{ duration: 0.3, ease: "easeInOut" }}
-                    >
-                      {/* Pitch */}
-                      <div className="grid grid-cols-6 items-center gap-2">
-                        <label htmlFor="pitch" className={`block text-sm font-medium ${isDarkMode ? 'text-gray-200' : 'text-gray-700'} col-span-1`}>
-                          Pitch
-                        </label>
-                        <input
-                          type="range"
-                          id="pitch"
-                          min="-20"
-                          max="20"
-                          step="1"
-                          value={pitch}
-                          onChange={handlePitchChange} // Use typed handler
-                          className={`mt-1 w-full h-2 ${isDarkMode ? 'bg-gray-600' : 'bg-gray-200'} rounded-lg appearance-none cursor-pointer accent-indigo-600 col-span-4`}
-                          aria-valuetext={`${pitch}`}
-                        />
-                        <span className={`text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-600'} text-right col-span-1 w-10`}>
-                          {pitch.toFixed(0)}
-                        </span>
-                      </div>
-
-                      {/* Speaking Rate */}
-                      <div className="grid grid-cols-6 items-center gap-2">
-                        <label htmlFor="speakingRate" className={`block text-sm font-medium ${isDarkMode ? 'text-gray-200' : 'text-gray-700'} col-span-1`}>
-                          Rate
-                        </label>
-                        <input
-                          type="range"
-                          id="speakingRate"
-                          min="0.25"
-                          max="4.0"
-                          step="0.05"
-                          value={speakingRate}
-                          onChange={handleRateChange} // Use typed handler
-                          className={`mt-1 w-full h-2 ${isDarkMode ? 'bg-gray-600' : 'bg-gray-200'} rounded-lg appearance-none cursor-pointer accent-indigo-600 col-span-4`}
-                          aria-valuetext={`${speakingRate.toFixed(2)}x`}
-                        />
-                        <span className={`text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-600'} text-right col-span-1 w-10`}>
-                          {speakingRate.toFixed(2)}x
-                        </span>
-                      </div>
-
-                      {/* Volume Control (for playback) */}
-                      <div className="grid grid-cols-6 items-center gap-2">
-                        <label htmlFor="volume" className={`block text-sm font-medium ${isDarkMode ? 'text-gray-200' : 'text-gray-700'} col-span-1`}>
-                          Volume
-                        </label>
-                        <input
-                          type="range"
-                          id="volume"
-                          min="0"
-                          max="1"
-                          step="0.01"
-                          value={isMuted ? 0 : volume} // Reflect mute state visually
-                          onChange={handleVolumeChange} // Use typed handler
-                          disabled={isMuted} // Disable slider when muted
-                          className={`mt-1 w-full h-2 ${isDarkMode ? 'bg-gray-600' : 'bg-gray-200'} rounded-lg appearance-none cursor-pointer accent-indigo-600 col-span-4 ${isMuted ? 'opacity-50 cursor-not-allowed' : ''}`} // Style disabled state
-                        />
-                        <button
-                          onClick={handleMuteToggle}
-                          className={`text-sm ${isDarkMode ? 'text-gray-300 hover:text-white' : 'text-gray-600 hover:text-gray-900'} col-span-1 w-10 flex justify-center items-center`} // Centered icon
-                          aria-label={isMuted ? 'Unmute' : 'Mute'}
+                    {showAdvanced && (
+                        <motion.div
+                        className={`space-y-4 border rounded-lg p-4 ${isDarkMode ? 'bg-gray-700 border-gray-600' : 'bg-gray-50 border-gray-200'}`}
+                        initial={{ height: 0, opacity: 0, marginTop: 0, paddingTop: 0, paddingBottom: 0 }}
+                        animate={{ height: 'auto', opacity: 1, marginTop: '0.5rem', paddingTop: '1rem', paddingBottom: '1rem' }}
+                        exit={{ height: 0, opacity: 0, marginTop: 0, paddingTop: 0, paddingBottom: 0 }}
+                        transition={{ duration: 0.3, ease: "easeInOut" }}
                         >
-                          {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
-                        </button>
-                      </div>
-
-                      {/* Model Quality (Placeholder - Functionality not implemented) */}
-                      {/* <div className="grid grid-cols-6 items-center gap-2">
-                        <label className={`block text-sm font-medium ${isDarkMode ? 'text-gray-200' : 'text-gray-700'} col-span-2`}>
-                          Model Quality
-                        </label>
-                        <div className="col-span-4 flex space-x-2">
-                          <button disabled className={`px-3 py-1 text-xs rounded-full ${isDarkMode ? 'bg-gray-600 text-gray-400' : 'bg-gray-200 text-gray-500'} flex items-center space-x-1 cursor-not-allowed`}>
-                            <span>Standard</span>
-                          </button>
-                           <button disabled className={`px-3 py-1 text-xs rounded-full ${isDarkMode ? 'bg-indigo-800 text-indigo-300' : 'bg-indigo-100 text-indigo-600'} flex items-center space-x-1 cursor-not-allowed`}>
-                            <span>Neural</span>
-                           </button>
-                          <button disabled className={`px-3 py-1 text-xs rounded-full flex items-center space-x-1 ${isDarkMode ? 'bg-purple-800 text-purple-300' : 'bg-purple-600 text-white'} cursor-not-allowed`}>
-                             <Cpu className="w-3 h-3" />
-                             <span>Premium</span>
-                           </button>
-                        </div>
-                      </div> */}
-                    </motion.div>
-                  )}
+                            {/* Pitch */}
+                            <div className="grid grid-cols-6 items-center gap-2">
+                                <label htmlFor="pitch" className={`block text-sm font-medium ${isDarkMode ? 'text-gray-200' : 'text-gray-700'} col-span-1`}> Pitch </label>
+                                <input type="range" id="pitch" min="-20" max="20" step="1" value={pitch} onChange={handlePitchChange}
+                                    className={`w-full h-2 ${isDarkMode ? 'bg-gray-600' : 'bg-gray-200'} rounded-lg appearance-none cursor-pointer accent-indigo-600 col-span-4`}
+                                    aria-valuetext={`${pitch}`} disabled={isLoading} // Disable during loading
+                                />
+                                <span className={`text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-600'} text-right col-span-1 w-10`}>{pitch.toFixed(0)}</span>
+                            </div>
+                            {/* Speaking Rate */}
+                            <div className="grid grid-cols-6 items-center gap-2">
+                                <label htmlFor="speakingRate" className={`block text-sm font-medium ${isDarkMode ? 'text-gray-200' : 'text-gray-700'} col-span-1`}> Rate </label>
+                                <input type="range" id="speakingRate" min="0.25" max="4.0" step="0.05" value={speakingRate} onChange={handleRateChange}
+                                    className={`w-full h-2 ${isDarkMode ? 'bg-gray-600' : 'bg-gray-200'} rounded-lg appearance-none cursor-pointer accent-indigo-600 col-span-4`}
+                                    aria-valuetext={`${speakingRate.toFixed(2)}x`} disabled={isLoading} // Disable during loading
+                                />
+                                <span className={`text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-600'} text-right col-span-1 w-10`}>{speakingRate.toFixed(2)}x</span>
+                            </div>
+                            {/* Volume Control (Playback) */}
+                            <div className="grid grid-cols-6 items-center gap-2">
+                                <label htmlFor="volume" className={`block text-sm font-medium ${isDarkMode ? 'text-gray-200' : 'text-gray-700'} col-span-1`}> Volume </label>
+                                <input type="range" id="volume" min="0" max="1" step="0.01" value={isMuted ? 0 : volume} onChange={handleVolumeChange} disabled={isMuted}
+                                    className={`w-full h-2 ${isDarkMode ? 'bg-gray-600' : 'bg-gray-200'} rounded-lg appearance-none cursor-pointer accent-indigo-600 col-span-4 ${isMuted ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                />
+                                <button onClick={handleMuteToggle}
+                                    className={`text-sm ${isDarkMode ? 'text-gray-300 hover:text-white' : 'text-gray-600 hover:text-gray-900'} col-span-1 w-10 flex justify-center items-center`}
+                                    aria-label={isMuted ? 'Unmute' : 'Mute'}
+                                > {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />} </button>
+                            </div>
+                             {/* Model Quality Placeholder */}
+                            {/* <div className="grid grid-cols-6 items-center gap-2"> ... </div> */}
+                        </motion.div>
+                    )}
                 </AnimatePresence>
 
                 {/* Convert Button */}
                 <motion.button
                   className={`w-full font-bold py-3 px-4 rounded-md transition duration-300 focus:outline-none focus:ring-2 focus:ring-offset-2 ${ isDarkMode ? 'focus:ring-offset-gray-800 focus:ring-indigo-400' : 'focus:ring-offset-white focus:ring-indigo-500' } flex items-center justify-center space-x-2 mt-4 disabled:opacity-50 disabled:cursor-not-allowed
                     ${isLoading
-                      ? isDarkMode ? 'bg-indigo-800 text-gray-400' : 'bg-indigo-300 text-gray-50' // Adjusted loading colors
+                      ? isDarkMode ? 'bg-indigo-800 text-gray-400' : 'bg-indigo-300 text-gray-50'
                       : isDarkMode ? 'bg-indigo-600 hover:bg-indigo-500 text-white' : 'bg-indigo-600 hover:bg-indigo-700 text-white'
                     }`}
                   onClick={handleConvert}
-                  disabled={isLoading || !text.trim() || !voiceName || !selectedLanguage} // Ensure language is also selected
+                  // Disable if loading, or inputs are invalid
+                  disabled={isLoading || !text.trim() || !voiceName || !selectedLanguage}
                   whileHover={!isLoading && text.trim() && voiceName && selectedLanguage ? { scale: 1.03, boxShadow: "0px 5px 15px rgba(99, 102, 241, 0.4)" } : {}}
                   whileTap={!isLoading && text.trim() && voiceName && selectedLanguage ? { scale: 0.98 } : {}}
                   transition={{ type: "spring", stiffness: 400, damping: 17 }}
                 >
                   {isLoading ? (
-                    <>
-                      <Loader2 className="animate-spin w-5 h-5" />
-                      <span>Converting...</span>
-                    </>
+                    <> <Loader2 className="animate-spin w-5 h-5" /> <span>Processing...</span> </>
                   ) : (
-                    <>
-                      <Sparkles className="w-5 h-5" />
-                      <span>Convert to Speech</span>
-                    </>
+                    <> <Sparkles className="w-5 h-5" /> <span>Convert to Speech</span> </>
                   )}
                 </motion.button>
               </motion.div>
             </div>
 
-             {/* Right Panel - Visualization & Player */}
-            <div className={`lg:col-span-3 ${isDarkMode ? 'bg-gray-900' : 'bg-gradient-to-br from-indigo-600 to-purple-600'} p-6 text-white`}> {/* Ensure text color contrast */}
-              <motion.div
-                className="h-full flex flex-col"
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ delay: 0.2 }}
-              >
-                {/* Visualization Header */}
-                <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-white text-xl font-bold">Audio Output</h2>
-                  <div className={`px-3 py-1 rounded-full text-xs font-medium flex items-center space-x-1.5 ${audioUrl ? 'bg-green-500 text-white' : 'bg-gray-500 text-white'}`}>
-                    <span>{audioUrl ? 'Ready' : 'Idle'}</span>
-                  </div>
-                </div>
-
-                {/* Visualization Area */}
-                <div className="flex-grow flex items-center justify-center mb-6 min-h-[200px]"> {/* Added min-height */}
-                  {audioUrl ? (
-                    <div className="w-full h-full flex flex-col items-center justify-center">
-                      {/* Placeholder Waveform */}
-                      <div className="w-full h-32 md:h-40 mb-4 relative overflow-hidden">
-                         <motion.div
-                          className="absolute inset-0 flex items-end justify-around space-x-px" // Use space-x-px for minimal gap
-                          initial={{ opacity: 0 }}
-                          animate={{ opacity: 1 }}
-                          transition={{ duration: 0.5 }}
-                         >
-                          {[...Array(60)].map((_, i) => ( // Increased bar count
-                            <motion.div
-                              key={i}
-                              className={`bg-white ${isDarkMode ? 'bg-opacity-70' : 'bg-opacity-80'} w-1 rounded-t-full`} // rounded-t-full for softer look
-                              initial={{ height: '2%' }} // Start small
-                              animate={{
-                                height: isPlaying
-                                  ? `${Math.max(2, Math.random() * 80 + 10)}%` // Ensure minimum height
-                                  : `${Math.max(2, Math.sin(i * 0.2 + currentTime * 2) * 30 + 40)}%` // Smoother idle animation based on time
-                              }}
-                              transition={{
-                                duration: isPlaying ? 0.15 : 0.5, // Faster when playing
-                                ease: isPlaying ? "easeOut" : "easeInOut",
-                                delay: isPlaying ? Math.random() * 0.1 : 0 // Slight random delay when playing
-                              }}
-                            />
-                          ))}
-                        </motion.div>
-                      </div>
-                      {/* Playback progress */}
-                       <div className="w-full h-2 bg-white bg-opacity-20 rounded-full overflow-hidden cursor-pointer" onClick={(e) => {
-                            if (audioRef.current && duration > 0) {
-                                const rect = e.currentTarget.getBoundingClientRect();
-                                const clickX = e.clientX - rect.left;
-                                const percentage = clickX / rect.width;
-                                audioRef.current.currentTime = duration * percentage;
-                                setCurrentTime(duration * percentage); // Update state immediately
-                            }
-                        }}>
-                        <motion.div
-                          className="h-full bg-white"
-                          initial={{ width: '0%'}}
-                          animate={{ width: `${duration ? (currentTime / duration) * 100 : 0}%` }}
-                          transition={{ duration: 0.1, ease: "linear" }} // Smooth progress update
-                        />
-                      </div>
+            {/* Right Panel - Visualization & Player */}
+            <div className={`lg:col-span-3 ${isDarkMode ? 'bg-gray-900' : 'bg-gradient-to-br from-indigo-600 to-purple-600'} p-6 text-white`}>
+               <motion.div className="h-full flex flex-col" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.2 }}>
+                 {/* Header */}
+                 <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-white text-xl font-bold">Audio Output</h2>
+                    <div className={`px-3 py-1 rounded-full text-xs font-medium flex items-center space-x-1.5 ${audioUrl ? 'bg-green-500 text-white' : (isLoading && !error ? 'bg-yellow-500 text-black' : 'bg-gray-500 text-white')}`}>
+                       <span>{isLoading ? 'Processing' : (audioUrl ? 'Ready' : 'Idle')}</span>
                     </div>
-                  ) : (
-                    <div className="text-center py-10">
-                      <motion.div
-                        className="inline-block mb-4 p-4 rounded-full bg-white bg-opacity-10"
-                        animate={{
-                          scale: [1, 1.05, 1],
-                          opacity: [0.5, 0.8, 0.5]
-                        }}
-                        transition={{
-                          duration: 3,
-                          repeat: Infinity,
-                          ease: "easeInOut"
-                        }}
-                      >
-                        <AudioWaveform className="w-12 h-12 text-white opacity-75" />
-                      </motion.div>
-                      <p className={`text-white ${isDarkMode ? 'text-opacity-70' : 'text-opacity-80'} max-w-md mx-auto`}>
-                        {isLoading ? 'Generating audio...' : 'Enter text, choose settings, and click Convert.'}
-                      </p>
+                 </div>
+                 {/* Visualization Area */}
+                 <div className="flex-grow flex items-center justify-center mb-6 min-h-[200px]">
+                    {audioUrl ? (
+                        <div className="w-full h-full flex flex-col items-center justify-center">
+                            {/* Waveform */}
+                            <div className="w-full h-32 md:h-40 mb-4 relative overflow-hidden">
+                                <motion.div className="absolute inset-0 flex items-end justify-around space-x-px" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }}>
+                                {[...Array(60)].map((_, i) => (
+                                    <motion.div key={i}
+                                        className={`bg-white ${isDarkMode ? 'bg-opacity-70' : 'bg-opacity-80'} w-1 rounded-t-full`}
+                                        initial={{ height: '2%' }}
+                                        animate={{ height: isPlaying ? `${Math.max(2, Math.random() * 80 + 10)}%` : `${Math.max(2, Math.sin(i * 0.2 + currentTime * 3) * 30 + 40)}%` }}
+                                        transition={{ duration: isPlaying ? 0.1 : 0.4, ease: isPlaying ? "easeOut" : "easeInOut", delay: isPlaying ? Math.random() * 0.05 : 0 }}
+                                    /> ))}
+                                </motion.div>
+                            </div>
+                            {/* Progress Bar */}
+                            <div className="w-full h-2 bg-white bg-opacity-20 rounded-full overflow-hidden cursor-pointer" onClick={(e) => {
+                                if (audioRef.current && duration > 0) {
+                                    const rect = e.currentTarget.getBoundingClientRect(); const clickX = e.clientX - rect.left; const percentage = clickX / rect.width;
+                                    audioRef.current.currentTime = duration * percentage; setCurrentTime(duration * percentage);
+                                } }}>
+                                <motion.div className="h-full bg-white" initial={{ width: '0%'}} animate={{ width: `${duration ? (currentTime / duration) * 100 : 0}%` }} transition={{ duration: 0.1, ease: "linear" }} />
+                            </div>
+                        </div>
+                        ) : ( /* Idle/Loading State */
+                        <div className="text-center py-10">
+                           <motion.div className="inline-block mb-4 p-4 rounded-full bg-white bg-opacity-10" animate={{ scale: [1, 1.05, 1], opacity: [0.5, 0.8, 0.5] }} transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}>
+                              <AudioWaveform className="w-12 h-12 text-white opacity-75" />
+                           </motion.div>
+                           <p className={`text-white ${isDarkMode ? 'text-opacity-70' : 'text-opacity-80'} max-w-md mx-auto`}>
+                              {isLoading ? 'Generating audio...' : 'Your synthesized audio will appear here.'}
+                           </p>
+                        </div>
+                        )}
                     </div>
-                  )}
-                </div>
 
-                {/* Audio Player Controls */}
-                {/* Use AnimatePresence for smoother appearance/disappearance */}
-                <AnimatePresence>
+                 {/* Audio Player Controls */}
+                 <AnimatePresence>
                     {audioUrl && (
-                    <motion.div
-                        className={`rounded-xl ${isDarkMode ? 'bg-white bg-opacity-10' : 'bg-black bg-opacity-10'} p-5`}
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: 10 }}
-                        transition={{ delay: 0.1, duration: 0.3 }} // Adjust delay/duration
-                    >
-                        {/* Hidden audio element controlled by custom UI */}
-                        {/* Ensure key changes if src changes to force re-render/reload if needed */}
-                        <audio ref={audioRef} src={audioUrl} preload="metadata" className="hidden" key={audioUrl} />
-
-                        <div className="flex flex-col space-y-4">
-                        {/* Time display */}
-                        <div className={`flex justify-between text-xs ${isDarkMode ? 'text-gray-300' : 'text-gray-100'} font-mono`}>
-                            <span>{formatTime(currentTime)}</span>
-                            <span>{formatTime(duration)}</span>
-                        </div>
-
-                        {/* Control buttons */}
-                        <div className="flex items-center justify-center space-x-6"> {/* Centered controls */}
-                            {/* Mute button (optional: move closer to volume slider if using one) */}
-                            <motion.button
-                            className={`p-2 rounded-full ${isDarkMode ? 'text-gray-300 hover:text-white bg-white bg-opacity-10 hover:bg-opacity-20' : 'text-gray-200 hover:text-white bg-black bg-opacity-10 hover:bg-opacity-20'} focus:outline-none focus:ring-2 focus:ring-white focus:ring-opacity-50`}
-                            onClick={handleMuteToggle}
-                            aria-label={isMuted ? 'Unmute' : 'Mute'}
-                            whileHover={{ scale: 1.1 }}
-                            whileTap={{ scale: 0.9 }}
-                            >
-                            {isMuted
-                                ? <VolumeX className="w-5 h-5" />
-                                : <Volume2 className="w-5 h-5" />
-                            }
-                            </motion.button>
-
-                            {/* Play/Pause */}
-                            <motion.button
-                                className={`p-4 rounded-full ${isDarkMode ? 'bg-white text-indigo-700 hover:bg-gray-200' : 'bg-white text-indigo-700 hover:bg-gray-200'} focus:outline-none focus:ring-2 focus:ring-white focus:ring-opacity-75 shadow-lg`}
-                                onClick={handlePlayPause}
-                                aria-label={isPlaying ? 'Pause' : 'Play'}
-                                whileHover={{ scale: 1.05 }}
-                                whileTap={{ scale: 0.95 }}
-                                >
-                                {isPlaying
-                                    ? <Pause className="w-6 h-6" fill="currentColor"/> // Fill icon when active
-                                    : <Play className="w-6 h-6 ml-1" fill="currentColor"/> // Fill icon when active
-                                }
-                                </motion.button>
-
-                            {/* Download button */}
-                            <motion.button
-                            className={`p-2 rounded-full ${isDarkMode ? 'text-gray-300 hover:text-white bg-white bg-opacity-10 hover:bg-opacity-20' : 'text-gray-200 hover:text-white bg-black bg-opacity-10 hover:bg-opacity-20'} focus:outline-none focus:ring-2 focus:ring-white focus:ring-opacity-50`}
-                            onClick={handleDownload}
-                            aria-label="Download Audio"
-                            title="Download MP3"
-                            whileHover={{ scale: 1.1 }}
-                            whileTap={{ scale: 0.9 }}
-                            >
-                            <Download className="w-5 h-5" />
-                            </motion.button>
-                        </div>
-                        </div>
-                    </motion.div>
+                        <motion.div
+                            className={`rounded-xl ${isDarkMode ? 'bg-white bg-opacity-10' : 'bg-black bg-opacity-10'} p-5`}
+                            initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10 }} transition={{ delay: 0.1, duration: 0.3 }}
+                        >
+                            <audio ref={audioRef} src={audioUrl} preload="metadata" className="hidden" key={audioUrl} />
+                            <div className="flex flex-col space-y-4">
+                                {/* Time display */}
+                                <div className={`flex justify-between text-xs ${isDarkMode ? 'text-gray-300' : 'text-gray-100'} font-mono`}>
+                                <span>{formatTime(currentTime)}</span> <span>{formatTime(duration)}</span>
+                                </div>
+                                {/* Control buttons */}
+                                <div className="flex items-center justify-center space-x-6">
+                                    {/* Mute */}
+                                    <motion.button
+                                        className={`p-2 rounded-full ${isDarkMode ? 'text-gray-300 hover:text-white bg-white bg-opacity-10 hover:bg-opacity-20' : 'text-gray-200 hover:text-white bg-black bg-opacity-10 hover:bg-opacity-20'} focus:outline-none focus:ring-2 focus:ring-white focus:ring-opacity-50`}
+                                        onClick={handleMuteToggle} aria-label={isMuted ? 'Unmute' : 'Mute'} whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }}
+                                    > {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />} </motion.button>
+                                    {/* Play/Pause */}
+                                    <motion.button
+                                        className={`p-4 rounded-full ${isDarkMode ? 'bg-white text-indigo-700 hover:bg-gray-200' : 'bg-white text-indigo-700 hover:bg-gray-200'} focus:outline-none focus:ring-2 focus:ring-white focus:ring-opacity-75 shadow-lg`}
+                                        onClick={handlePlayPause} aria-label={isPlaying ? 'Pause' : 'Play'} whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+                                    > {isPlaying ? <Pause className="w-6 h-6" fill="currentColor"/> : <Play className="w-6 h-6 ml-1" fill="currentColor"/>} </motion.button>
+                                    {/* Download */}
+                                    <motion.button
+                                        className={`p-2 rounded-full ${isDarkMode ? 'text-gray-300 hover:text-white bg-white bg-opacity-10 hover:bg-opacity-20' : 'text-gray-200 hover:text-white bg-black bg-opacity-10 hover:bg-opacity-20'} focus:outline-none focus:ring-2 focus:ring-white focus:ring-opacity-50`}
+                                        onClick={handleDownload} aria-label="Download Audio" title="Download MP3" whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }}
+                                    > <Download className="w-5 h-5" /> </motion.button>
+                                </div>
+                            </div>
+                        </motion.div>
                     )}
-                </AnimatePresence>
+                 </AnimatePresence>
 
-                {/* Info cards */}
-                <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <motion.div
-                    className={`${isDarkMode ? 'bg-white bg-opacity-5' : 'bg-white bg-opacity-5'} p-4 rounded-lg`}
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.4 }}
-                  >
-                    <h3 className={`${isDarkMode ? 'text-gray-200' : 'text-black'} text-sm font-semibold mb-2`}>Available Voices</h3>
-                    <p className={`${isDarkMode ? 'text-gray-400' : 'text-black'} text-xs`}>
-                      {selectedLanguage
-                        ? `${filteredVoices.length} voice${filteredVoices.length !== 1 ? 's' : ''} for ${languagesWithLabels.find(l => l.code === selectedLanguage)?.label || selectedLanguage}`
-                        : 'Select a language'
-                      }
-                    </p>
-                  </motion.div>
+                 {/* Info cards */}
+                 <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                     {/* Voices Info */}
+                    <motion.div className={`${isDarkMode ? 'bg-white bg-opacity-5' : 'bg-black bg-opacity-5'} p-4 rounded-lg`} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }}>
+                       <h3 className={`${isDarkMode ? 'text-gray-200' : 'text-white'} text-sm font-semibold mb-2`}>Available Voices</h3>
+                       <p className={`${isDarkMode ? 'text-gray-400' : 'text-gray-200'} text-xs`}>
+                          {selectedLanguage ? `${filteredVoices.length} voice${filteredVoices.length !== 1 ? 's' : ''} for ${getLanguageLabel(selectedLanguage)}` : (languages.length > 0 ? 'Select a language' : (isLoading ? 'Loading...' : 'No voices found'))}
+                       </p>
+                    </motion.div>
+                    {/* Character Limits Info (Placeholder) */}
+                    <motion.div className={`${isDarkMode ? 'bg-white bg-opacity-5' : 'bg-black bg-opacity-5'} p-4 rounded-lg`} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 }}>
+                       <h3 className={`${isDarkMode ? 'text-gray-200' : 'text-white'} text-sm font-semibold mb-2`}>Usage Limits</h3>
+                       <p className={`${isDarkMode ? 'text-gray-400' : 'text-gray-200'} text-xs`}> Character limits may apply per request. Check your API provider documentation. </p>
+                    </motion.div>
+                 </div>
+               </motion.div>
+            </div> {/* End Right Panel */}
 
-                  <motion.div
-                    className={`${isDarkMode ? 'bg-white bg-opacity-5' : 'bg-white bg-opacity-5'} p-4 rounded-lg`}
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.5 }}
-                  >
-                    <h3 className={`${isDarkMode ? 'text-gray-200' : 'text-black'} text-sm font-semibold mb-2`}>Character Limits</h3>
-                    <p className={`${isDarkMode ? 'text-gray-400' : 'text-black'} text-xs`}>
-                      {/* Update with actual limits if known */}
-                      Limits may apply per request.
-                      <br />
-                      Check API documentation.
-                    </p>
-                  </motion.div>
-                </div>
-              </motion.div>
-            </div>
-
-          </div>
-        </motion.div>
+          </div> {/* End Main Grid */}
+        </motion.div> {/* End Centered Container */}
       </main>
 
       {/* Footer */}
       <footer className={`py-4 px-6 text-center text-sm ${isDarkMode ? 'bg-gray-800 text-gray-400' : 'bg-white bg-opacity-70 text-gray-600'}`}>
         <div className="container mx-auto">
-          <p>Voice Synthesizer Pro • Text-to-Speech</p>
+          <p>Voice Synthesizer Pro • Powered by Your TTS API</p>
         </div>
       </footer>
     </div>
