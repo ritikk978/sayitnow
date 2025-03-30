@@ -25,7 +25,7 @@ import {
 import Navbar from '@/component/navbar'; // Assuming Navbar component exists
 
 // --- NEW BRAND NAME (Suggestion - replace if you have one) ---
-const BRAND_NAME = "AI Media Suite"; // Use a name that reflects your services
+const BRAND_NAME = "Say It Now"; // Use a name that reflects your services
 
 const HomePage = () => {
   // State management (remains the same)
@@ -217,7 +217,7 @@ const HomePage = () => {
               </motion.button>
 
               <motion.button
-                className="bg-white bg-opacity-10 backdrop-blur-sm border border-white border-opacity-20 hover:bg-opacity-20 text-white font-medium py-3 px-7 rounded-full shadow-lg flex items-center transition-all duration-300" // Adjusted text color
+                className="bg-white bg-opacity-10 backdrop-blur-sm border border-white border-opacity-20 hover:bg-opacity-20 text-black font-medium py-3 px-7 rounded-full shadow-lg flex items-center transition-all duration-300" // Adjusted text color
                 variants={buttonVariants}
                 whileHover="hover"
                 whileTap="tap"

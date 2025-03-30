@@ -28,7 +28,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 
 // Brand name consistent with HomePage
-const BRAND_NAME = "AI Media Suite";
+const BRAND_NAME = "Say It Now";
 
 const FeaturesContent = () => {
   const [showMenu, setShowMenu] = useState(false);
@@ -210,7 +210,7 @@ const FeaturesContent = () => {
   // Testimonial data
   const testimonials = [
     {
-      quote: "AI Media Suite has completely transformed our podcast production workflow. What used to take hours now happens in minutes.",
+      quote: "Say It Now has completely transformed our podcast production workflow. What used to take hours now happens in minutes.",
       author: "Sarah Johnson",
       position: "Head of Content, Media Masters",
       logo: "/media-masters-logo.png"
@@ -464,8 +464,8 @@ const FeaturesContent = () => {
             <div className="divide-y divide-gray-100">
               {[
                 {
-                  question: "What makes AI Media Suite different from other AI voice tools?",
-                  answer: "AI Media Suite offers a comprehensive solution that combines text-to-speech, speech-to-text, and text-to-video capabilities in one integrated platform. Our neural voice technology produces significantly more natural-sounding voices with emotional range, and our developer API offers enterprise-grade reliability and customization options not found in other solutions."
+                  question: "What makes Say It Now different from other AI voice tools?",
+                  answer: "Say It Now offers a comprehensive solution that combines text-to-speech, speech-to-text, and text-to-video capabilities in one integrated platform. Our neural voice technology produces significantly more natural-sounding voices with emotional range, and our developer API offers enterprise-grade reliability and customization options not found in other solutions."
                 },
                 {
                   question: "How accurate is the speech recognition?",

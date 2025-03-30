@@ -36,7 +36,7 @@ const NavBar: React.FC<NavbarProps> = ({ scrolled, showMenu, setShowMenu }) => {
     { name: 'Features', path: '/feature' },
     { name: 'Pricing', path: '/pricing' },
     { name: 'About', path: '/about' },
-    { name: 'TextToSpeech', path: '/converter' },
+    { name: 'Studio', path: '/converter' },
   ];
 
   const handleNavigation = (path: Url) => {
@@ -66,7 +66,7 @@ const NavBar: React.FC<NavbarProps> = ({ scrolled, showMenu, setShowMenu }) => {
               <Sparkles className={`${scrolled || router.pathname !== '/' ? 'text-black' : 'text-white'} mr-2`} size={22} />
             </div>
             <span className={`font-bold text-lg ${scrolled || router.pathname !== '/' ? 'text-black' : 'text-white'}`}>
-              NEXUS
+            Say It Now
             </span>
           </div>
           
@@ -83,7 +83,7 @@ const NavBar: React.FC<NavbarProps> = ({ scrolled, showMenu, setShowMenu }) => {
                       : 'bg-white bg-opacity-20 text-black'
                     : scrolled || router.pathname !== '/'
                       ? 'text-gray-800 hover:bg-gray-100'
-                      : 'text-white hover:bg-white hover:bg-opacity-10'
+                      : 'text-white hover:bg-white hover:text-black hover:bg-opacity-10'
                 }`}
               >
                 {item.name}

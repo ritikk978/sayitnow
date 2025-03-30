@@ -25,7 +25,7 @@ import {
 import NavBar from '@/component/navbar';
 
 // Brand name consistent with other components
-const BRAND_NAME = "AI Media Suite";
+const BRAND_NAME = "Say It Now";
 
 const AboutContent = () => {
   const [showMenu, setShowMenu] = useState(false);
@@ -54,7 +54,7 @@ const AboutContent = () => {
     }
   };
 
-  // Team members data - AI Media Suite specific
+  // Team members data - Say It Now specific
   const teamMembers = [
     {
       name: "Alexandra Chen",
@@ -99,7 +99,7 @@ const AboutContent = () => {
     }
   ];
 
-  // Company stats - AI Media Suite specific
+  // Company stats - Say It Now specific
   const companyStats = [
     { value: "2019", label: "Founded", icon: <Clock className="h-6 w-6 text-indigo-600" /> },
     { value: "Counting", label: "Active Users", icon: <Users className="h-6 w-6 text-indigo-600" /> },
@@ -107,7 +107,7 @@ const AboutContent = () => {
     { value: "40+", label: "Supported Languages", icon: <Globe className="h-6 w-6 text-indigo-600" /> }
   ];
 
-  // Company values - AI Media Suite specific
+  // Company values - Say It Now specific
   const companyValues = [
     {
       title: "AI Innovation",
@@ -126,7 +126,7 @@ const AboutContent = () => {
     }
   ];
 
-  // Company milestones - AI Media Suite specific
+  // Company milestones - Say It Now specific
   const companyMilestones = [
     {
       year: "2025",
@@ -261,7 +261,7 @@ const AboutContent = () => {
             ))}
           </motion.div>
 
-          {/* Our story section - AI Media Suite specific */}
+          {/* Our story section - Say It Now specific */}
           <motion.div className="mb-20" variants={itemVariants}>
             <div className="flex flex-col md:flex-row gap-10 items-center">
               <motion.div 
@@ -307,7 +307,7 @@ const AboutContent = () => {
             </div>
           </motion.div>
 
-          {/* Timeline section - AI Media Suite milestones */}
+          {/* Timeline section - Say It Now milestones */}
           <motion.div 
             className="mb-20" 
             variants={itemVariants}
@@ -350,7 +350,7 @@ const AboutContent = () => {
             </div>
           </motion.div>
 
-          {/* Our mission & values - AI Media Suite specific */}
+          {/* Our mission & values - Say It Now specific */}
           <motion.div className="mb-20 bg-white rounded-2xl p-10 shadow-md border border-gray-100" variants={itemVariants}>
             <h2 className="text-3xl font-bold text-gray-900 mb-10 text-center">Our Mission & Values</h2>
             
@@ -383,7 +383,7 @@ const AboutContent = () => {
          
  
 
-          {/* Contact section - AI Media Suite specific */}
+          {/* Contact section - Say It Now specific */}
           <motion.div 
             className="bg-gradient-to-r from-indigo-600 to-purple-600 rounded-2xl shadow-xl p-10 text-white"
             variants={itemVariants}
