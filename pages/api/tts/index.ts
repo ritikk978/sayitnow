@@ -66,14 +66,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 }
 
 // Create text-to-speech client
-function createClient() {
+export function createClient() {
   if (process.env.NODE_ENV !== 'production') {
     require('dotenv').config();
   }
 
   if (process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON) {
-    const credentials = JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON);
+    const credentialsJson = Buffer.from(
+      process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON,
+      'base64'
+    ).toString();
+
+    const credentials = JSON.parse(credentialsJson);
+
     return new TextToSpeechClient({ credentials });
   }
+
   return new TextToSpeechClient();
 }
