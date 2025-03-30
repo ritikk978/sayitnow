@@ -5,13 +5,13 @@ import { GoogleAuth } from 'google-auth-library';
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
     // Check if the environment variable exists
-    if (!process.env.GOOGLE_APPLICATION_CREDENTIALS_BASE64) {
-      throw new Error('GOOGLE_APPLICATION_CREDENTIALS_BASE64 environment variable is missing');
+    if (!process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON) {
+      throw new Error('GOOGLE_APPLICATION_CREDENTIALS_JSON environment variable is missing');
     }
     
     // Decode the base64 credentials
     const credentialsJson = Buffer.from(
-      process.env.GOOGLE_APPLICATION_CREDENTIALS_BASE64,
+      process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON,
       'base64'
     ).toString();
     
